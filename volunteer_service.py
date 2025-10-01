@@ -1,90 +1,69 @@
 import psycopg2.extras
 import uuid
 import json
-from database import get_db_connection
-from models import VolunteerInput, TesisClinica, VisualReference
-from config import settings
+import os
+from database import get_db_connection # Importación corregida
+from models import TesisClinica, VisualReference # Importación corregida
+from config import settings # Importación corregida
 from typing import Optional
 
-# NOTA: Necesitarías instalar la librería google-genai. 
-# Aquí simulamos la llamada a la API para el flujo de datos.
+# NOTA: Necesitarías la librería 'google-genai' aquí
 # from google import genai 
 # client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 
 # ----------------------------------------------------
-# 1. FUNCIÓN DE SIMULACIÓN DE LA IA MULTIMODAL (El Proxy Visual)
+# 1. FUNCIÓN PRINCIPAL DE LA IA (Simulación del Proxy Visual)
 # ----------------------------------------------------
 
 def generate_tesis_with_gemini(history_text: str, image_path: str) -> Optional[TesisClinica]:
     """
-    Simula la llamada a Gemini 2.5 Pro Vision para generar la Tesis Clínica.
+    Simula la llamada a Gemini 2.5 Pro Vision. Esto es el PROXY VISUAL.
     
-    En el código real, 'image_path' sería un archivo cargado o una URL temporal.
+    En el código real, se cargaría la imagen desde 'image_path' y se enviaría a la API.
     """
-    # 1. CONSTRUCCIÓN DEL PROMPT AVANZADO (El Motor del Caso)
-    # Se instruye a la IA para ser precisa, provocativa y generar el Proxy Visual.
+    # ... (El código de generación de prompt y llamada a Gemini iría aquí) ...
     
-    prompt = f"""
-    Eres un motor de simulación clínica avanzada. Tu tarea es generar una Tesis Clínica de Alta Fidelidad 
-    basada en la siguiente Historia Clínica: '{history_text}'.
-    
-    Analiza la imagen de apoyo (si fue proporcionada) para generar un reporte textual y un término de búsqueda.
-    
-    REGLAS CLAVE:
-    1. El diagnóstico propuesto debe ser asertivo, pero incluir una omisión o sutil error detectable (para el debate).
-    2. Genera todos los resultados de laboratorio y el plan de tratamiento completo y específico (dosis/frecuencia).
-    3. Asegura que el nivel de complejidad sea 'Experto'.
-    
-    Tu respuesta debe ajustarse al siguiente formato JSON estricto.
-    """
-    
-    # --- SIMULACIÓN DEL OUTPUT DE LA IA ---
-    # En producción, se haría la llamada real a la API.
-    # Esta es una respuesta simulada de Neumonía para demostrar la estructura:
-    
+    # --- SIMULACIÓN DEL OUTPUT DE LA IA (Neumonía, como ejemplo) ---
     case_id = f"CASO-{str(uuid.uuid4())[:8].upper()}"
     
-    # Se simula que la IA analizó la imagen y el texto
     simulated_tesis_data = {
         "case_id": case_id,
         "especialidad": "Medicina Interna",
         "nivel_complejidad": "Experto",
-        "diagnostico_propuesto": "Neumonía Adquirida en la Comunidad (NAC) - Criterios CURB-65 bajo.",
-        "plan_tratamiento": "Amoxicilina/Ácido Clavulánico 875/125 mg c/12h por 7 días. Reposo. Control en 48h.",
-        "laboratorios_simulados": {"Leucocitos": "14,500/mm³", "PCR": "8.5 mg/dL", "Rx Tórax": "Consolidación lobar derecha."},
+        "diagnostico_propuesto": "Neumonía Adquirida en la Comunidad (NAC) - Sospecha de Mycoplasma.",
+        "plan_tratamiento": "Azitromicina 500 mg dosis única, luego 250 mg diarios por 4 días más.",
+        "laboratorios_simulados": {"Leucocitos": "9,200/mm³", "Rx Tórax": "Infiltrado intersticial en base pulmonar izquierda."},
         "referencia_visual": {
-            "reporte_textual": "Opacidad lobar derecha con patrón de consolidación segmentaria, compatible con proceso infeccioso.",
-            "search_term": "Radiografía de tórax consolidación lobar derecha típica"
+            "reporte_textual": "Infiltrado de patrón intersticial sutil en base pulmonar izquierda, sin derrame.",
+            "search_term": "Radiografía de tórax infiltrado intersticial atípico"
         },
-        "puntos_clave_debate": ["¿Es necesario realizar un cultivo de esputo?", "¿Es el tratamiento de primera línea óptimo para esta región?"],
+        "puntos_clave_debate": ["¿Es el Azitromicina el tratamiento de primera elección empírico?", "¿Se requiere hospitalización?"],
     }
     
     return TesisClinica(**simulated_tesis_data)
 
 
 # ----------------------------------------------------
-# 2. PROCESAMIENTO PRINCIPAL DEL VOLUNTARIO (La Anonymización)
+# 2. PROCESAMIENTO PRINCIPAL DEL VOLUNTARIO (Anonimización)
 # ----------------------------------------------------
 
-def process_volunteer_case(data: VolunteerInput, image_path: Optional[str]) -> Optional[TesisClinica]:
+def process_volunteer_case(email: str, history_text: str, image_path: Optional[str]) -> Optional[TesisClinica]:
     """
-    Función que gestiona el caso después de que el pago fue exitoso.
+    Función que gestiona el caso después del pago y Waiver.
     """
     conn = get_db_connection()
-    if conn is None:
-        return None
+    if conn is None: return None
     
     # 1. Llamada a la IA para generar la Tesis Clínica
-    tesis = generate_tesis_with_gemini(data.history_text, image_path)
-    if tesis is None:
-        return None # Falló la IA
+    tesis = generate_tesis_with_gemini(history_text, image_path)
+    if tesis is None: return None
     
-    # 2. ¡ELIMINACIÓN INMEDIATA DE LA IMAGEN! (Protección HIPAA)
-    # Aquí iría el código para eliminar el archivo subido en 'image_path'
-    # os.remove(image_path) o llamada al servicio cloud para borrar la URL temporal.
-    print(f"DEBUG: IMAGEN TEMPORAL EN {image_path} HA SIDO ELIMINADA.")
-
+    # 2. ¡ELIMINACIÓN INMEDIATA DE LA IMAGEN! (Doble Protección HIPAA)
+    if image_path and os.path.exists(image_path):
+        os.remove(image_path)
+        print(f"DEBUG: IMAGEN TEMPORAL EN {image_path} HA SIDO ELIMINADA.")
+    
     # 3. Almacenamiento Anónimo en la DB
     try:
         cursor = conn.cursor()
@@ -106,7 +85,7 @@ def process_volunteer_case(data: VolunteerInput, image_path: Optional[str]) -> O
             ON CONFLICT (email) DO UPDATE
             SET case_id_linked = EXCLUDED.case_id_linked;
             """,
-            (data.email, tesis.case_id)
+            (email, tesis.case_id)
         )
         
         conn.commit()
@@ -121,14 +100,13 @@ def process_volunteer_case(data: VolunteerInput, image_path: Optional[str]) -> O
         if conn: conn.close()
 
 # ----------------------------------------------------
-# 3. Función de Recuperación de Reporte para el Voluntario
+# 3. Función de Recuperación de Reporte
 # ----------------------------------------------------
 
 def get_volunteer_report(email: str) -> Optional[TesisClinica]:
-    """Recupera la Tesis Clínica para que el voluntario obtenga su 'Reporte de Participación'."""
+    """Recupera la Tesis Clínica para el 'Reporte de Participación' del voluntario."""
     conn = get_db_connection()
-    if conn is None:
-        return None
+    if conn is None: return None
     
     try:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
@@ -144,6 +122,7 @@ def get_volunteer_report(email: str) -> Optional[TesisClinica]:
         
         report = cursor.fetchone()
         if report:
+            # Asegura que el JSON se convierta en el modelo Pydantic
             return TesisClinica(**report['tesis_clinica'])
         return None
         
