@@ -176,4 +176,82 @@ def update_professional_details(email: str, name: str, specialty: str) -> bool:
     finally:
         if conn:
             conn.close()
-update_professional_credits
+
+# --- Funciones de Pagos (Créditos) ---
+def update_professional_credits(email: str, amount: int) -> bool:
+    """Añade o resta la cantidad de créditos especificada al perfil de un profesional."""
+    sql = """
+    UPDATE profiles
+    SET credits = credits + %s
+    WHERE email = %s AND user_type = 'professional';
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (amount, email))
+            conn.commit()
+            return cur.rowcount > 0
+        return False
+    except Exception as e:
+        print(f"ERROR: Fallo al actualizar créditos: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+# --- Funciones de Mantenimiento (Cron Jobs) ---
+def get_expiring_cases(hours: int = 24) -> list:
+    """Obtiene los casos abiertos que expiran en las próximas N horas."""
+    # Usamos INTERVAL para calcular la fecha de expiración
+    sql = """
+    SELECT case_id, professional_email, title, description
+    FROM cases
+    WHERE status = 'open'
+    AND created_at < NOW() - INTERVAL '48 hours' + INTERVAL '24 hours'
+    AND created_at > NOW() - INTERVAL '48 hours' - INTERVAL '1 second';
+    """
+    conn = None
+    results = []
+    try:
+        conn = get_db_connection()
+        if conn:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                rows = cur.fetchall()
+                columns = ['case_id', 'professional_email', 'title', 'description']
+                for row in rows:
+                    results.append(dict(zip(columns, row)))
+        return results
+    except Exception as e:
+        print(f"ERROR: Fallo al obtener casos por expirar: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def release_expired_cases() -> int:
+    """Cierra los casos que superaron su tiempo límite de 48 horas."""
+    sql = """
+    UPDATE cases
+    SET status = 'expired'
+    WHERE status = 'open'
+    AND created_at < NOW() - INTERVAL '48 hours';
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if conn:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                conn.commit()
+                return cur.rowcount
+        return 0
+    except Exception as e:
+        print(f"ERROR: Fallo al liberar casos expirados: {e}")
+        return 0
+    finally:
+        if conn:
+            conn.close()
+
