@@ -1,26 +1,25 @@
+import stripe
 from config import settings
 from models import CreatePaymentIntent
-from typing import Optional
 
-# NOTA: En producción, necesitarías la librería 'stripe' aquí.
+# Configura Stripe con tu clave secreta
+stripe.api_key = settings.STRIPE_SECRET_KEY
 
-def create_payment_intent(data: CreatePaymentIntent) -> Optional[dict]:
+def create_payment_intent(data: CreatePaymentIntent):
     """
-    Simula la creación de un Payment Intent de Stripe usando la clave secreta.
+    Crea un Payment Intent con Stripe.
+    Esto permite a la pasarela de pago manejar la complejidad de la transacción.
     """
-    # En producción: stripe.api_key = settings.STRIPE_SECRET_KEY
-    # Aquí se haría la llamada a Stripe y se manejarían los errores.
-    
     try:
-        # Simulación de respuesta exitosa de Stripe
-        if data.amount < 1: # Fallo simulado
-            raise Exception("Monto invalido.")
-            
-        return {
-            "client_secret": f"pi_{data.amount}_secret_demo_{data.product_type}",
-            "payment_intent_id": f"pi_{data.amount}_demo_id",
-            "amount": data.amount
-        }
+        intent = stripe.PaymentIntent.create(
+            amount=data.amount,
+            currency=data.currency,
+            payment_method_types=[data.payment_method_type],
+            description=data.description,
+            receipt_email=data.customer_email,
+            metadata={'product': data.description}
+        )
+        return intent
     except Exception as e:
-        print(f"Error al crear la intención de pago (Simulado): {e}")
+        print(f"ERROR de Stripe al crear Payment Intent: {e}")
         return None
