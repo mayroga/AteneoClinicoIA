@@ -5,13 +5,15 @@ import json
 
 from config import settings
 # ----------------------------------------------------------------------
-# ¡CAMBIO CLAVE AQUÍ!
-# Nombres de funciones corregidos para que coincidan con database.py:
-# - insert_waiver  -> sign_waiver
-# - insert_professional -> create_profile (que maneja ambos tipos)
-# - get_user_type  -> get_profile_by_email (que devuelve el perfil completo)
+# ¡IMPORTACIÓN CORREGIDA! Ahora incluye update_professional_details
 # ----------------------------------------------------------------------
-from database import sign_waiver, create_profile, get_profile_by_email, get_professional_profile
+from database import (
+    sign_waiver, 
+    create_profile, 
+    get_profile_by_email, 
+    get_professional_profile, 
+    update_professional_details # <--- ¡Nueva función importada!
+)
 
 # Router para manejar las rutas de autenticación
 router = APIRouter(prefix="/api/v1/auth", tags=["Autenticación"])
@@ -42,6 +44,8 @@ class AuthResult(BaseModel):
     # Añadimos Optional para los datos que solo tienen los profesionales
     credits: Optional[int] = None
     ranking_score: Optional[int] = None
+    name: Optional[str] = None
+    specialty: Optional[str] = None
     warning: Optional[str] = None
 
 async def get_current_user(email: str = Depends(lambda e: e)) -> AuthResult:
@@ -81,15 +85,12 @@ def sign_waiver_endpoint(data: WaiverRequest):
     Paso 1: Firma legal del waiver. Es un paso obligatorio para registrarse.
     """
     # 1. Intentar crear el perfil (professional o volunteer)
-    # Usamos create_profile, que inserta el perfil base si no existe.
     profile_created = create_profile(data.email, data.user_type)
     
-    # 2. Firmar el waiver. Usamos la función correcta: sign_waiver.
-    # Esta función actualizará el campo is_waiver_signed a TRUE.
+    # 2. Firmar el waiver. 
     waiver_signed = sign_waiver(data.email)
     
     if not profile_created or not waiver_signed:
-        # Esto ocurre si hay un error de DB o si el create_profile falla por algún motivo
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error en la base de datos al registrar o firmar el waiver."
@@ -101,64 +102,44 @@ def sign_waiver_endpoint(data: WaiverRequest):
 def create_professional_detail_profile(data: ProfessionalProfile):
     """
     Crea o actualiza el perfil detallado del profesional (nombre, especialidad).
-    Esta función asume que ya existe un perfil en la tabla 'profiles'.
     """
-    # Usamos la función corregida
     profile_data = get_profile_by_email(data.email)
     
-    # Verificación de tipo de usuario
+    # 1. Verificación de tipo de usuario
     if not profile_data or profile_data.get('user_type') != 'professional':
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los usuarios tipo 'professional' registrados pueden crear este perfil."
         )
         
-    # FIX PENDIENTE: Tu archivo database.py NO tiene la función
-    # 'insert_professional'. Si esta función solo actualiza el ranking/créditos,
-    # el endpoint podría no hacer nada. Debes crear una función en database.py
-    # para actualizar los campos 'name' y 'specialty' del perfil.
+    # 2. Llamada a la función de actualización (¡ACTIVADA!)
+    success = update_professional_details(data.email, data.name, data.specialty)
     
-    # Usaremos una función de placeholder temporal, ¡PERO DEBES CREARLA!
-    # success = update_professional_details(data.email, data.name, data.specialty) 
-    
-    # Por ahora, para que compile, eliminaremos la llamada a la función que falta.
-    # Si la función real es insert_professional, su implementación DEBE estar en database.py.
-    
-    # if not success:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    #         detail="Error al crear el perfil del profesional."
-    #     )
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al crear el perfil del profesional. Revisar logs de DB."
+        )
         
-    # return {"message": "Perfil de profesional creado/actualizado con éxito."}
-    
-    # Temporalmente levantamos una excepción para avisar que la DB no soporta esta función
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="La funcionalidad de actualizar detalles de perfil profesional aún no está implementada en la base de datos (función 'insert_professional' faltante)."
-    )
-
+    return {"message": "Perfil de profesional creado/actualizado con éxito."}
 
 @router.get("/me", response_model=AuthResult)
 def get_user_status(current_user: AuthResult = Depends(get_current_user)):
     """
     Obtiene el estado del usuario actual (tipo, créditos, ranking).
     """
-    # Eliminamos el parámetro 'email: str' ya que la dependencia lo maneja.
-    
     response_data = current_user.model_dump()
     
     if current_user.user_type == 'professional':
-        # Esta función SI existe en database.py
         profile = get_professional_profile(current_user.email)
         
         if profile:
-            # Añadir créditos y ranking al estado del usuario si es profesional
+            # Añadir datos específicos del profesional
             response_data['credits'] = profile.get('credits')
-            response_data['ranking_score'] = profile.get('ranking_score') # Corregido a 'ranking_score'
+            response_data['ranking_score'] = profile.get('ranking_score') 
+            response_data['name'] = profile.get('name')
+            response_data['specialty'] = profile.get('specialty')
         else:
-            # Este caso es improbable si get_current_user ya pasó, 
-            # pero es buena práctica cubrirlo.
             response_data['warning'] = "Datos de profesional faltantes. Por favor, revise su perfil."
 
     return response_data
