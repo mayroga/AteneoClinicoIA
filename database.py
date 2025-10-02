@@ -290,3 +290,32 @@ def release_expired_debates(hours_threshold: int) -> int:
         db_conn.rollback()
         print(f"ERROR al liberar debates expirados: {e}")
         return 0
+# database.py
+
+# ... (TUS IMPORTACIONES Y OTRAS FUNCIONES ANTERIORES)
+
+def update_professional_details(email: str, name: str, specialty: str) -> bool:
+    """Actualiza el nombre y la especialidad del perfil de un profesional."""
+    sql = """
+    UPDATE profiles
+    SET name = %s, specialty = %s
+    WHERE email = %s AND user_type = 'professional';
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (name, specialty, email))
+            conn.commit()
+            return True
+        return False
+    except Exception as e:
+        print(f"ERROR: Fallo al actualizar detalles de profesional: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+# Asegúrate de que todas las funciones necesarias estén importadas en auth_routes.py
+# (create_tables, get_db_connection, y ahora update_professional_details, etc.) 
