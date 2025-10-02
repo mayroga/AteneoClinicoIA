@@ -1,26 +1,58 @@
-import os
 from pydantic_settings import BaseSettings
+from pydantic import Field
+import os
+
+# Carga variables de entorno desde un archivo .env si existe (útil para desarrollo local)
+from dotenv import load_dotenv
+load_dotenv()
 
 class Settings(BaseSettings):
     """
-    Clase que maneja todas las configuraciones de la aplicación, cargadas de variables de entorno (Render).
+    Configuración de la aplicación que carga las variables de entorno.
+    Se busca la variable ADMIN_BYPASS_KEY para el acceso de administrador.
     """
     
-    # --- Configuración de la Aplicación y Seguridad ---
-    ADMIN_BYPASS_KEY: str = os.getenv("ADMIN_BYPASS_KEY", "CLAVE_MAESTRA_SECRETA_DEV")
-    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000") # URL del frontend para CORS
+    # --- Configuración del Servidor y URL Propio ---
+    app_base_url: str = Field(
+        default="https://ateneoclinicoia.onrender.com", 
+        description="El URL base de la aplicación para enlaces."
+    )
     
-    # --- Claves de la API (Monetización, IA y Correo) ---
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "FAKE_GEMINI_KEY")
-    STRIPE_SECRET_KEY: str = os.getenv("STRIPE_SECRET_KEY", "sk_FAKE_STRIPE_KEY") # Clave secreta de Stripe para pagos
-    EMAIL_API_KEY: str = os.getenv("EMAIL_API_KEY", "TU_CLAVE_API_DE_SENDGRID") # Clave de SendGrid
-    SENDER_EMAIL: str = os.getenv("SENDER_EMAIL", "tu.email.verificado@dominio.com") # Email verificado de SendGrid
+    # --- Claves Secretas para Servicios Externos ---
+
+    # Clave de API para Google GenAI (Gemini)
+    google_api_key: str = Field(
+        ..., # Requerido
+        description="Clave de API para el servicio de Google Gemini."
+    )
     
-    # --- Configuración de la Base de Datos PostgreSQL (Render) ---
-    DB_NAME: str = os.getenv("DB_NAME", "ateneo_db")
-    DB_USER: str = os.getenv("DB_USER", "postgres")
-    DB_PASSWORD: str = os.getenv("DB_PASSWORD", "postgres")
-    DB_HOST: str = os.getenv("DB_HOST", "localhost")
-    DB_PORT: str = os.getenv("DB_PORT", "5432")
+    # Clave de API para SendGrid
+    sendgrid_api_key: str = Field(
+        ..., # Requerido
+        description="Clave de API para el envío de correos electrónicos con SendGrid."
+    )
+    
+    # Configuración de la Base de Datos (PostgreSQL)
+    database_url: str = Field(
+        ...,
+        description="URL de conexión completo para la base de datos PostgreSQL."
+    )
+
+    # CLAVE DE BYPASS: Lee la variable de entorno ADMIN_BYPASS_KEY
+    admin_bypass_key: str = Field(
+        default="", 
+        description="Clave de acceso de administrador para exención de pago y privilegios."
+    )
+
+    # Puedes agregar otras configuraciones como el email del remitente
+    default_sender_email: str = Field(
+        default="no-responder@ateneoclinicoia.com",
+        description="Dirección de correo electrónico del remitente por defecto."
+    )
+
+    class Config:
+        env_file = ".env"
+        env_prefix = '' # Prefijo vacío para leer nombres exactos (ej: ADMIN_BYPASS_KEY)
+        extra = "ignore" 
 
 settings = Settings()
