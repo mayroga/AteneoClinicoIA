@@ -6,8 +6,9 @@ from config import settings
 def get_db_connection():
     """Establece una conexión con la base de datos PostgreSQL."""
     try:
+        # Nota: settings.DATABASE_URL debe ser una cadena de conexión válida (ej. 'postgresql://user:pass@host:port/dbname')
         conn = psycopg2.connect(settings.DATABASE_URL)
-        print("INFO: Conexión a PostgreSQL exitosa.")
+        # print("INFO: Conexión a PostgreSQL exitosa.")
         return conn
     except Exception as e:
         print(f"ERROR: Fallo al conectar con PostgreSQL: {e}")
@@ -25,7 +26,7 @@ def create_tables():
                     email VARCHAR(255) PRIMARY KEY,
                     user_type VARCHAR(20) NOT NULL,
                     is_waiver_signed BOOLEAN DEFAULT FALSE,
-                    # Campos de Profesional
+                    -- Campos de Profesional
                     name VARCHAR(255) NULL,
                     specialty VARCHAR(255) NULL,
                     credits INTEGER DEFAULT 0,
@@ -33,7 +34,7 @@ def create_tables():
                     created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
                 );
                 """)
-                # Tabla de Casos (pendiente de implementación completa)
+                # Tabla de Casos
                 cur.execute("""
                 CREATE TABLE IF NOT EXISTS cases (
                     case_id SERIAL PRIMARY KEY,
@@ -44,7 +45,7 @@ def create_tables():
                     created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
                 );
                 """)
-                # Tabla de Comentarios (pendiente de implementación completa)
+                # Tabla de Comentarios
                 cur.execute("""
                 CREATE TABLE IF NOT EXISTS case_comments (
                     comment_id SERIAL PRIMARY KEY,
@@ -58,6 +59,8 @@ def create_tables():
             print("INFO: Tablas de la base de datos verificadas/creadas.")
         except Exception as e:
             print(f"ERROR: Fallo al crear tablas: {e}")
+            # Corregido: Asegurar el rollback si hay error en la creación de tablas
+            conn.rollback()
         finally:
             conn.close()
             
@@ -120,7 +123,6 @@ def get_profile_by_email(email: str):
                 cur.execute(sql, (email,))
                 row = cur.fetchone()
                 if row:
-                    # Mapear los resultados a un diccionario (simplificado)
                     columns = ['email', 'user_type', 'is_waiver_signed', 'credits', 'ranking_score', 'name', 'specialty']
                     return dict(zip(columns, row))
                 return None
@@ -152,7 +154,6 @@ def get_professional_profile(email: str):
         if conn:
             conn.close()
 
-# --- ¡FUNCIÓN NUEVA Y CRUCIAL! ---
 def update_professional_details(email: str, name: str, specialty: str) -> bool:
     """Actualiza el nombre y la especialidad del perfil de un profesional."""
     sql = """
@@ -173,6 +174,60 @@ def update_professional_details(email: str, name: str, specialty: str) -> bool:
     except Exception as e:
         print(f"ERROR: Fallo al actualizar detalles de profesional: {e}")
         return False
+    finally:
+        if conn:
+            conn.close()
+
+# --- Funciones de Casos (Implementadas) ---
+
+def insert_case(professional_email: str, title: str, description: str) -> int | None:
+    """Inserta un nuevo caso en la base de datos y devuelve su case_id."""
+    sql = """
+    INSERT INTO cases (professional_email, title, description)
+    VALUES (%s, %s, %s)
+    RETURNING case_id;
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (professional_email, title, description))
+                # Obtiene el ID del caso que acaba de ser insertado
+                case_id = cur.fetchone()[0]
+            conn.commit()
+            return case_id
+        return None
+    except Exception as e:
+        print(f"ERROR: Fallo al insertar caso: {e}")
+        if conn:
+            conn.rollback() # Asegura el rollback si falla
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+def get_case_by_id(case_id: int):
+    """Obtiene los datos de un caso por su ID."""
+    sql = """
+    SELECT case_id, professional_email, title, description, status, created_at
+    FROM cases
+    WHERE case_id = %s;
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (case_id,))
+                row = cur.fetchone()
+                if row:
+                    columns = ['case_id', 'professional_email', 'title', 'description', 'status', 'created_at']
+                    return dict(zip(columns, row))
+                return None
+    except Exception as e:
+        print(f"ERROR: Fallo al obtener caso por ID: {e}")
+        return None
     finally:
         if conn:
             conn.close()
@@ -204,13 +259,15 @@ def update_professional_credits(email: str, amount: int) -> bool:
 # --- Funciones de Mantenimiento (Cron Jobs) ---
 def get_expiring_cases(hours: int = 24) -> list:
     """Obtiene los casos abiertos que expiran en las próximas N horas."""
-    # Usamos INTERVAL para calcular la fecha de expiración
+    # Los casos expiran a las 48 horas. Queremos casos creados hace más de (48 - N) horas, pero menos de 48 horas.
     sql = """
     SELECT case_id, professional_email, title, description
     FROM cases
     WHERE status = 'open'
-    AND created_at < NOW() - INTERVAL '48 hours' + INTERVAL '24 hours'
-    AND created_at > NOW() - INTERVAL '48 hours' - INTERVAL '1 second';
+    -- Casos que expiran en las proximas 'hours' (Ej: creado hace mas de 24h si hours=24)
+    AND created_at < NOW() - INTERVAL '48 hours' + INTERVAL '%s hours'
+    -- Y casos que aun no han expirado (creado hace menos de 48h)
+    AND created_at >= NOW() - INTERVAL '48 hours';
     """
     conn = None
     results = []
@@ -218,7 +275,8 @@ def get_expiring_cases(hours: int = 24) -> list:
         conn = get_db_connection()
         if conn:
             with conn.cursor() as cur:
-                cur.execute(sql)
+                # Se pasa el parámetro 'hours' al placeholder %s
+                cur.execute(sql, (hours,))
                 rows = cur.fetchall()
                 columns = ['case_id', 'professional_email', 'title', 'description']
                 for row in rows:
@@ -254,4 +312,3 @@ def release_expired_cases() -> int:
     finally:
         if conn:
             conn.close()
-
