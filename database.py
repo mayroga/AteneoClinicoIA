@@ -176,3 +176,4 @@ def update_professional_details(email: str, name: str, specialty: str) -> bool:
     finally:
         if conn:
             conn.close()
+update_professional_credits
