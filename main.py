@@ -4,7 +4,7 @@ from payment_routes import router as payment_router
 from auth_routes import router as auth_router 
 from case_routes import router as case_router 
 # ----------------------------------------------------------------------
-# ¡DESCOMENTADO! Ahora la aplicación buscará notification_service.py
+# ¡DESCOMENTADO! Importación de las funciones de notificación
 from notification_service import run_expiration_alert_job, run_cleanup_job
 import time 
 
