@@ -532,7 +532,7 @@
                 $('profCredits').innerHTML = `Créditos Disponibles: <span class="text-red-600 font-extrabold">1 Crédito Usado</span> | Refutation Score: <span class="text-blue-600 font-extrabold">?</span>`;
             } else if (data && data.detail) {
                  showModal('Créditos Necesarios', data.detail);
-             }
+               }
         }
 
         function renderDebateForm(caseId) {
@@ -586,29 +586,40 @@
         }
         
         // --- VISTA 5: COMPRAR CRÉDITOS ---
+        
+        function renderCreditPack(credits, price, label, borderClass) {
+            return `
+                <div class="bg-white border-2 ${borderClass} rounded-xl p-6 text-center transition-all hover:shadow-xl cursor-pointer" onclick="simulateCreditPurchase(${credits}, ${price})">
+                    <p class="text-xs font-bold uppercase text-gray-500">${label}</p>
+                    <p class="text-5xl font-extrabold text-blue-600 my-2">${credits}</p>
+                    <p class="text-lg font-semibold text-gray-800 mb-4">Créditos</p>
+                    <button class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-bold text-sm">
+                        Comprar $${price}.00 USD
+                    </button>
+                </div>
+            `;
+        }
+        
+        function simulateCreditPurchase(credits, price) {
+            // En una aplicación real, esto iniciaría una sesión de Stripe Checkout
+            showModal('Compra de Créditos Simulada', 
+                      `Has simulado la compra de ${credits} créditos por $${price}.00 USD. 
+                       En una aplicación real, el sistema te redirigiría a Stripe y 
+                       actualizaría tu saldo al completar el pago.`,
+                       () => navigateTo('professional_flow')
+            );
+            // Si el backend tuviera un endpoint de compra simulada, se llamaría aquí.
+        }
+        
         views.buy_credits_flow = () => `
             <div class="space-y-6">
                 <h2 class="text-2xl font-semibold text-blue-600 border-b pb-3 mb-4">Comprar Créditos (Stripe Simulado)</h2>
                 <p class="text-gray-700">Selecciona el paquete de créditos que deseas comprar.</p>
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    ${[
-                        { credits: 1, price: 5, description: "Caso Individual" },
-                        { credits: 5, price: 20, description: "Paquete Básico" },
-                        { credits: 10, price: 35, description: "Paquete Premium" }
-                    ].map(pkg => `
-                        <div id="package-${pkg.credits}" class="bg-white border border-gray-200 p-5 rounded-xl shadow-md space-y-3 flex flex-col justify-between">
-                            <div>
-                                <h3 class="text-xl font-bold text-gray-800">${pkg.credits} Crédito${pkg.credits > 1 ? 's' : ''}</h3>
-                                <p class="text-gray-500">${pkg.description}</p>
-                            </div>
-                            <p class="text-3xl font-extrabold text-blue-600">$${pkg.price}.00 USD</p>
-                            <button onclick="simulateCreditPurchase(${pkg.credits}, ${pkg.price})" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 font-semibold rounded-lg flex items-center justify-center text-sm">
-                                Comprar
-                                <div class="loading-ring ml-2"></div>
-                            </button>
-                        </div>
-                    `).join('')}
+                <div id="creditPacks" class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+                    ${renderCreditPack(5, 50, 'Starter Pack', 'border-blue-500')}
+                    ${renderCreditPack(12, 100, 'Popular (Ahorras $20)', 'border-emerald-500 ring-4 ring-emerald-100')}
+                    ${renderCreditPack(25, 200, 'Profesional (Mejor valor)', 'border-indigo-500')}
                 </div>
                 
                 <button onclick="navigateTo('professional_flow')" class="mt-6 text-gray-500 hover:text-gray-700 text-sm flex items-center">
@@ -616,59 +627,12 @@
                 </button>
             </div>
         `;
-        
-        /**
-         * Simula el proceso de compra de créditos (Stripe Checkout).
-         * Llama al backend con los créditos comprados y asume una respuesta de éxito.
-         */
-        async function simulateCreditPurchase(credits, price) {
-            const packageId = `package-${credits}`;
-            const button = document.querySelector(`#${packageId} button`);
-            
-            // Simular la carga
-            if (button) {
-                button.disabled = true;
-                button.innerHTML = `<div class="loading-ring mr-2" style="display: block;"></div> Procesando...`;
-                button.classList.add('opacity-70', 'cursor-not-allowed');
-            }
-
-            // Simulación de llamada a Stripe/Backend para compra
-            const data = await apiFetch('/api/v1/professional/buy-credits', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Email': userEmail },
-                body: JSON.stringify({ credits: credits, amount: price })
-            });
-
-            // Restaurar botón
-            if (button) {
-                button.disabled = false;
-                button.innerHTML = `Comprar <div class="loading-ring ml-2"></div>`;
-                button.classList.remove('opacity-70', 'cursor-not-allowed');
-            }
-
-            if (data && data.success) {
-                const newCredits = data.new_credits || 'desconocido';
-                showModal('Compra Exitosa (Simulada)', `¡Felicidades! Has comprado **${credits} créditos** por $${price}.00 USD. Tu nuevo saldo es de ${newCredits} créditos.`, () => {
-                    // Volver al flujo profesional para continuar el debate
-                    navigateTo('professional_flow');
-                });
-            } else if (data === null) {
-                // El error ya fue manejado por apiFetch.
-            } else {
-                showModal('Error de Compra', 'Ocurrió un error al procesar la compra de créditos. Inténtalo de nuevo.');
-            }
-        }
 
 
         // ***************************************************
-        // INICIO DE LA APLICACIÓN
+        // INICIALIZACIÓN
         // ***************************************************
-
-        // Inicializar la vista al cargar la página
-        window.onload = () => {
-            render();
-        };
-
+        window.onload = render;
     </script>
 </body>
 </html>
