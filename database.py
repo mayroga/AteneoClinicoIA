@@ -1,25 +1,36 @@
 import psycopg2
-from config import settings
+from psycopg2 import OperationalError
+# CORREGIDO: Usamos 'configuracion' para ser consistentes con main.py
+from configuracion import settings 
 
 def get_db_connection():
-    """Establece y retorna una conexión a la base de datos."""
+    """
+    Establece y retorna una conexión a la base de datos usando la DATABASE_URL completa.
+    Retorna la conexión (psycopg2) o None si falla.
+    """
+    if not settings.database_url:
+        print("ADVERTENCIA: DATABASE_URL no está configurada en settings.")
+        return None
+        
     try:
-        conn = psycopg2.connect(
-            dbname=settings.DB_NAME,
-            user=settings.DB_USER,
-            password=settings.DB_PASSWORD,
-            host=settings.DB_HOST,
-            port=settings.DB_PORT
-        )
+        # Conexión utilizando la URL completa, estándar para entornos cloud (Render).
+        # Esto simplifica la configuración a una sola variable.
+        conn = psycopg2.connect(settings.database_url)
         return conn
+    except OperationalError as e:
+        # Esto captura fallos como credenciales incorrectas o servidor no disponible.
+        print(f"ERROR: Fallo de conexión a PostgreSQL: {e}")
+        return None
     except Exception as e:
-        print(f"Error al conectar a la base de datos: {e}")
+        print(f"ERROR inesperado al conectar a DB: {e}")
         return None
 
 def create_tables():
     """Crea las tablas de la base de datos si no existen."""
     conn = get_db_connection()
-    if conn is None: return
+    if conn is None: 
+        print("ERROR: No se pudo establecer la conexión a la DB para crear tablas.")
+        return
 
     try:
         cursor = conn.cursor()
