@@ -5,28 +5,30 @@ from typing import Optional
 import asyncio
 
 # --- IMPORTACIONES DE SERVICIOS REALES ---
-from config import settings # Importa la configuración (precios, bypass, claves)
+from config import settings # Configuración con claves de producción
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
-import stripe # NECESARIO para cobros (Asegúrate que la dependencia 'stripe' esté instalada)
-from google import genai # NECESARIO para IA (Asegúrate que la dependencia 'google-genai' esté instalada)
-import psycopg2 # NECESARIO para PostgreSQL (Asegúrate que la dependencia 'psycopg2-binary' esté instalada)
+import stripe # Cliente real de Stripe para cobros
+from google import genai # Cliente real de Google GenAI para IA
+import psycopg2 # Cliente real para PostgreSQL
+from psycopg2 import OperationalError
 
+# Inicialización de la aplicación FastAPI
 app = FastAPI(
     title="Ateneo Clínico IA Backend",
     version="1.0.0",
     description="Servicio backend para debate IA, pagos y notificaciones."
 )
 
-# Inicializar cliente de Stripe (asumiendo que tienes STRIPE_SECRET_KEY en settings)
-# Nota: La clave secreta de Stripe DEBE estar en tu config.py y en Render.
-# settings.stripe_secret_key = Field(default="", description="Clave Secreta de Stripe para cobros.") 
+# Inicializar cliente de Stripe (Se ejecuta al iniciar el servidor)
 try:
-    # Esto inicializará la API de Stripe si la clave está disponible
-    # stripe.api_key = settings.stripe_secret_key # Descomentar cuando la clave esté en settings
-    pass # Mantener comentado hasta que config.py se actualice con la clave secreta de Stripe
-except Exception:
-    print("Advertencia: No se pudo inicializar Stripe. El cobro real está deshabilitado.")
+    if settings.stripe_secret_key:
+        stripe.api_key = settings.stripe_secret_key
+        print("INFO: Stripe inicializado con clave secreta.")
+    else:
+        print("ADVERTENCIA: Stripe secret key no configurada. Los pagos reales fallarán.")
+except Exception as e:
+    print(f"ERROR: Fallo al inicializar Stripe: {e}")
 
 # ==============================================================================
 # 1. ESQUEMAS DE DATOS
@@ -48,7 +50,7 @@ class EmailData(BaseModel):
 class DebateData(BaseModel):
     """Esquema para el debate con IA."""
     query: str
-    history: Optional[list] = None # Para historial de conversación
+    history: Optional[list] = None # Para historial de conversación (futura implementación)
 
 # ==============================================================================
 # 2. FUNCIONES DE SERVICIO REAL
@@ -56,7 +58,7 @@ class DebateData(BaseModel):
 
 def get_current_user_id(request: Request) -> str:
     """
-    Simula la obtención del ID del usuario autenticado (se espera en el encabezado 'X-User-ID').
+    Obtiene el ID del usuario del encabezado 'X-User-ID'.
     """
     user_id = request.headers.get("x-user-id", "anonymous")
     return user_id
@@ -64,33 +66,27 @@ def get_current_user_id(request: Request) -> str:
 def create_payment_intent(amount: float, currency: str = 'usd') -> dict:
     """
     Función REAL de Stripe para crear una intención de pago.
-    ***NOTA: Reemplazar el bloque 'try' por el código real de la API de Stripe.***
     """
     
-    # Aquí iría la validación de la clave secreta de Stripe
-    # if not stripe.api_key:
-    #    raise Exception("Stripe API Key no configurada.")
+    if not settings.stripe_secret_key:
+       raise Exception("Clave Secreta de Stripe no configurada. Cobro real deshabilitado.")
     
     try:
-        # --- CÓDIGO REAL DE STRIPE (Simulado para evitar crash si falta la clave) ---
+        # Uso del cliente Stripe inicializado
+        intent = stripe.PaymentIntent.create(
+            amount=int(amount * 100),  # Stripe usa centavos
+            currency=currency,
+            automatic_payment_methods={"enabled": True},
+        )
+        return {"client_secret": intent.client_secret, "amount": amount}
         
-        # intent = stripe.PaymentIntent.create(
-        #     amount=int(amount * 100),  # Stripe usa centavos
-        #     currency=currency,
-        #     automatic_payment_methods={"enabled": True},
-        # )
-        # return {"client_secret": intent.client_secret, "amount": amount}
-        
-        # SIMULACIÓN DETALLADA: Si no tienes la clave secreta en settings.
-        return {
-            "client_secret": f"pi_mock_{amount}", 
-            "amount": amount, 
-            "warning": "Payment simulated. Add Stripe Secret Key to enable real payments."
-        }
-
     except Exception as e:
-        print(f"ERROR en Stripe: {e}")
-        raise HTTPException(status_code=500, detail=f"Fallo al crear intención de pago en Stripe: {str(e)}")
+        print(f"ERROR en Stripe al crear intención: {e}")
+        # Aseguramos que el error de Stripe se eleve correctamente
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Fallo al crear intención de pago en Stripe: {str(e)}"
+        )
 
 
 async def ai_debate_service(query: str) -> str:
@@ -98,17 +94,17 @@ async def ai_debate_service(query: str) -> str:
     Función REAL para el debate con IA usando Google GenAI.
     """
     if not settings.google_api_key:
-        raise HTTPException(status_code=503, detail="Servicio de IA no configurado.")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, 
+                            detail="Servicio de IA no configurado (Falta GOOGLE_API_KEY).")
 
     try:
-        # Inicializar el cliente
+        # Inicializar el cliente dentro de la función (o globalmente si es preferido)
         client = genai.Client(api_key=settings.google_api_key)
         
-        # Mensaje de sistema (Define el rol de la IA)
         system_instruction = ("Eres un experto en el ateneo clínico, especializado en debatir casos complejos "
                               "y proporcionar un análisis médico riguroso basado en evidencia.")
 
-        # Llamada a la API de Gemini
+        # La llamada a la API de Gemini se realiza dentro de un hilo para no bloquear el bucle de eventos
         response = await asyncio.to_thread(
             client.models.generate_content,
             model='gemini-2.5-flash',
@@ -121,7 +117,8 @@ async def ai_debate_service(query: str) -> str:
         return response.text
     except Exception as e:
         print(f"ERROR en Gemini: {e}")
-        raise HTTPException(status_code=500, detail=f"Fallo en el servicio de IA: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+                            detail=f"Fallo en el servicio de IA: {str(e)}")
 
 
 def send_email_service(data: EmailData) -> bool:
@@ -142,7 +139,6 @@ def send_email_service(data: EmailData) -> bool:
     try:
         sg = SendGridAPIClient(settings.sendgrid_api_key)
         response = sg.send(message)
-        print(f"Correo enviado. Estado: {response.status_code}")
         return response.status_code in [200, 202]
     except Exception as e:
         print(f"ERROR: Fallo al enviar correo con SendGrid: {str(e)}")
@@ -150,10 +146,9 @@ def send_email_service(data: EmailData) -> bool:
 
 def check_db_connection() -> bool:
     """
-    Verifica la conexión a la base de datos PostgreSQL.
+    Verifica la conexión real a la base de datos PostgreSQL.
     """
     if not settings.database_url:
-        print("ADVERTENCIA: DATABASE_URL no está configurada.")
         return False
     
     try:
@@ -161,8 +156,11 @@ def check_db_connection() -> bool:
         conn = psycopg2.connect(settings.database_url, connect_timeout=5)
         conn.close()
         return True
+    except OperationalError as e:
+        print(f"ERROR de conexión a DB: {e}")
+        return False
     except Exception as e:
-        print(f"ERROR: Fallo de conexión a DB: {e}")
+        print(f"ERROR inesperado de DB: {e}")
         return False
 
 
@@ -183,7 +181,7 @@ def db_health():
     else:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, 
-            detail="Fallo al conectar con la base de datos PostgreSQL. Verifica DATABASE_URL."
+            detail="Fallo al conectar con la base de datos PostgreSQL. Verifica DATABASE_URL en Render."
         )
 
 
@@ -198,9 +196,7 @@ async def process_transaction(
     """
     current_user_id = get_current_user_id(request)
     
-    # ----------------------------------------------------------------------
     # LÓGICA DE ACCESO GRATUITO PARA EL DESARROLLADOR (BYPASS)
-    # ----------------------------------------------------------------------
     if current_user_id == settings.admin_bypass_key and settings.admin_bypass_key != "":
         return TransactionResponse(
             status="success",
@@ -209,10 +205,7 @@ async def process_transaction(
             user_type="Developer (Bypass)"
         )
 
-    # ----------------------------------------------------------------------
     # LÓGICA DE PRECIOS SEGMENTADOS POR TIPO DE USUARIO
-    # ----------------------------------------------------------------------
-    
     user_role_lower = user_role.lower()
     
     if user_role_lower == 'volunteer':
@@ -222,18 +215,13 @@ async def process_transaction(
         price_to_charge = settings.price_professional
         user_type_charged = "Profesional"
     else:
-        # Si no se proporciona un rol válido.
         raise HTTPException(
-            status_code=400, 
-            detail="Rol de usuario no válido. Debe ser 'volunteer' o 'professional'. Asegúrate de enviar el encabezado 'X-User-Role'."
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Rol de usuario no válido. Debe ser 'volunteer' o 'professional'."
         )
 
-    # ----------------------------------------------------------------------
     # PROCESAMIENTO DE PAGO REAL (STRIPE)
-    # ----------------------------------------------------------------------
-    
     try:
-        # Llama a la función REAL de Stripe para crear una intención de pago
         payment_info = create_payment_intent(price_to_charge) 
         
         return TransactionResponse(
@@ -243,17 +231,16 @@ async def process_transaction(
             user_type=user_type_charged
         )
     except HTTPException as e:
+        # Si create_payment_intent lanzó un HTTPException (ej. clave no configurada)
         raise e
     except Exception as e:
         # Manejo de errores de Stripe
-        raise HTTPException(status_code=500, detail=f"Fallo al procesar el pago: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Fallo al procesar el pago: {str(e)}")
 
 
 @app.post("/debate/")
 async def debate_ai(data: DebateData):
     """Permite a los usuarios interactuar con el modelo de IA (Gemini)."""
-    if not settings.google_api_key:
-        raise HTTPException(status_code=503, detail="Servicio de IA no configurado (Falta GOOGLE_API_KEY).")
     
     # Llama a la función REAL de debate con Gemini
     response = await ai_debate_service(data.query)
@@ -262,11 +249,12 @@ async def debate_ai(data: DebateData):
 @app.post("/send-notification/")
 async def send_notification(data: EmailData):
     """Envía notificaciones por correo electrónico a los usuarios."""
-    if not settings.sendgrid_api_key:
-        raise HTTPException(status_code=503, detail="Servicio de correo no configurado (Falta SENDGRID_API_KEY).")
     
     # Llama a la función de envío de correo real
     if send_email_service(data):
         return {"status": "success", "message": "Correo enviado con éxito usando SendGrid."}
     else:
-        raise HTTPException(status_code=500, detail="Fallo al enviar el correo con SendGrid.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail="Fallo al enviar el correo con SendGrid. Revisa la clave o el email del remitente."
+        )
