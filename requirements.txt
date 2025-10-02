@@ -4,3 +4,4 @@ pydantic
 python-dotenv
 google-genai
 psycopg2-binary
+sendgrid  # <-- ¡NUEVA LIBRERÍA DE ENVÍO DE CORREOS!
