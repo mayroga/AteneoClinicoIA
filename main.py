@@ -103,6 +103,11 @@ class ClinicalCaseInput(BaseModel):
     clinical_data: str = Field(..., description="Texto completo de la historia clínica o resumen.")
     image_path: str = Field(..., description="Ruta local o URL a la imagen de apoyo (Radiografía, ECG, etc.).")
 
+class FinalRefutationRequest(BaseModel):
+    """Esquema para que el profesional envíe su refutación final a un caso."""
+    case_id: int = Field(..., description="ID del caso clínico que se está refutando.")
+    professional_email: EmailStr = Field(..., description="Email del profesional que envía la refutación.")
+    refutation_text: str = Field(..., description="El texto completo de la refutación final.")
 
 # ==============================================================================
 # 2. FUNCIONES DE SERVICIO REAL (Simulaciones)
@@ -531,3 +536,46 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     
     # 4. Retornar inmediatamente 200 OK a Stripe
     return {"status": "success", "message": "Webhook recibido y procesando en segundo plano."}
+
+# ----------------------------------------------------
+# 3.9 ENVÍO DE REFUTACIÓN FINAL POR EL PROFESIONAL
+# ----------------------------------------------------
+
+@app.post("/professional/submit-refutation", status_code=status.HTTP_200_OK)
+async def submit_final_refutation(data: FinalRefutationRequest):
+    """
+    Registra la refutación final del profesional en el caso y actualiza su puntuación.
+    """
+    try:
+        # Llamada a la función del servicio profesional (asume implementación en professional_service.py)
+        result = professional_service.submit_refutation(
+            case_id=data.case_id,
+            email=data.professional_email,
+            refutation_text=data.refutation_text
+        )
+
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+                detail="Error interno al procesar la refutación final."
+            )
+            
+        if 'error' in result:
+            # Manejar errores de negocio (caso no encontrado, caso ya cerrado, etc.)
+            status_code = status.HTTP_404_NOT_FOUND if 'Caso' in result['error'] else status.HTTP_400_BAD_REQUEST
+            raise HTTPException(
+                status_code=status_code, 
+                detail=result['error']
+            )
+
+        # Retorna el mensaje de éxito y la nueva puntuación del profesional
+        return {"status": "success", "message": result['message'], "new_score": result.get('new_score')}
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"ERROR en /professional/submit-refutation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail="Error interno al intentar guardar la refutación final."
+        )
