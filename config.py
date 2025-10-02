@@ -1,44 +1,36 @@
-from pydantic import Field, EmailStr
-from pydantic_settings import BaseSettings
-
-# NOTA IMPORTANTE: Esta clase define las variables de entorno (secrets) que tu 
-# aplicación FastAPI necesita. Pydantic-Settings las cargará automáticamente 
-# desde el entorno de Render o variables locales.
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import EmailStr, Field
+import os
 
 class Settings(BaseSettings):
     """
-    Configuración de la aplicación cargada desde variables de entorno.
+    Define todas las variables de entorno requeridas para la aplicación.
+    Los nombres aquí deben coincidir exactamente con las variables de entorno de tu servidor.
     """
     
-    # --- Configuración Base ---
-    # La URL de la base de datos PostgreSQL, esencial para Render.
-    database_url: str = Field(..., alias="DATABASE_URL", description="URL de conexión a PostgreSQL.")
-
-    # La URL base de la aplicación (usada para redirecciones de Stripe y enlaces virales).
-    app_base_url: str = Field("http://localhost:8000", description="URL base de la app para webhooks/redirecciones.")
-
-    # --- Servicios de IA (Google GenAI) ---
-    google_api_key: str = Field(..., alias="GOOGLE_API_KEY", description="Clave API de Google GenAI.")
-
-    # --- Servicios de Pago (Stripe) ---
-    stripe_secret_key: str = Field(..., alias="STRIPE_SECRET_KEY", description="Clave secreta de Stripe.")
-    # Clave necesaria para verificar la autenticidad de los eventos de webhook de Stripe.
-    stripe_webhook_secret: str = Field(..., alias="STRIPE_WEBHOOK_SECRET", description="Clave secreta del webhook de Stripe.")
-
-    # Precios de los servicios (en USD)
-    price_volunteer: float = Field(15.00, description="Precio de la cuota de Voluntario.")
-    price_professional: float = Field(25.00, description="Precio de la cuota de Profesional (Crédito).")
+    # Base de Datos
+    DATABASE_URL: str
     
-    # Clave de bypass para el desarrollador (debe ser secreta)
-    admin_bypass_key: str = Field("", alias="ADMIN_BYPASS_KEY", description="Clave de ID de usuario para acceso gratuito ilimitado.")
+    # Servicios de IA
+    GEMINI_API_KEY: str
 
-    # --- Servicios de Correo (SendGrid) ---
-    sendgrid_api_key: str = Field(..., alias="SENDGRID_API_KEY", description="Clave API de SendGrid.")
-    default_sender_email: EmailStr = Field(..., alias="DEFAULT_SENDER_EMAIL", description="Email del remitente para SendGrid.")
+    # Servicios de Correo (SendGrid)
+    EMAIL_API_KEY: str # Corresponde a tu código secreto de SendGrid
+    SENDER_EMAIL: EmailStr # Corresponde al email desde donde se envían las notificaciones
+    
+    # Servicios de Pago (Stripe)
+    STRIPE_SECRET_KEY: str
+    STRIPE_WEBHOOK_SECRET: str
 
-    # Se puede omitir 'Config' en Pydantic v2 si solo se usa BaseSettings 
-    # y se confía en la carga automática del entorno.
-    pass
+    # Clave de Bypass Administrativo (Acceso gratis/ilimitado)
+    ADMIN_BYPASS_KEY: str = Field(..., default='MICHA991775')
 
-# Instancia de configuración que se importa en main.py y otros servicios
+
+    # Metadata de la configuración para pydantic-settings
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra='ignore'
+    )
+
+# Instancia única de la configuración para uso global
 settings = Settings()
