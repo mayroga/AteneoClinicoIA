@@ -1,7 +1,9 @@
 import psycopg2
 from psycopg2 import OperationalError
+from typing import Optional, List, Dict, Any # Agregado para tipado
+import json # Necesario para manejar la serialización de JSONB
 # CORREGIDO: Usamos 'configuracion' para ser consistentes con main.py
-from configuracion import settings 
+from configuracion import settings
 
 def get_db_connection():
     """
@@ -89,6 +91,8 @@ def create_tables():
     finally:
         if conn: conn.close()
 
+# --- Funciones de Inserción y Actualización ---
+
 def insert_waiver(email: str, user_type: str) -> bool:
     """
     Inserta un nuevo registro de aceptación de términos legales (waiver).
@@ -108,20 +112,71 @@ def insert_waiver(email: str, user_type: str) -> bool:
             RETURNING email;
         """, (email, user_type))
         
-        # Si la inserción ocurre (no hubo conflicto), el cursor retorna algo
         inserted_email = cursor.fetchone()
         
         conn.commit()
         
-        # Retorna True si se insertó un nuevo registro (o si ya existía y no es un fallo)
-        # Para saber si se insertó *realmente* algo: cursor.rowcount > 0 
-        return cursor.rowcount > 0 or inserted_email is not None
+        # Retorna True si se insertó un nuevo registro (cursor.rowcount > 0) o si ya existía y la operación fue exitosa.
+        return True
 
     except Exception as e:
         conn.rollback()
-        # En un sistema real, distinguiríamos entre el error de duplicidad y un error grave.
-        # Aquí simplificamos, pero notamos el error.
         print(f"ERROR: Fallo al insertar waiver para {email}: {e}")
+        return False
+    finally:
+        if conn: conn.close()
+
+def insert_professional(email: str, name: str, specialty: str) -> bool:
+    """
+    Registra un nuevo profesional. El email debe existir previamente en la tabla waivers.
+    """
+    conn = get_db_connection()
+    if conn is None:
+        return False
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO professionals (email, name, specialty)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (email) DO UPDATE
+            SET name = EXCLUDED.name, specialty = EXCLUDED.specialty;
+        """, (email, name, specialty))
+        
+        conn.commit()
+        return True
+
+    except Exception as e:
+        conn.rollback()
+        print(f"ERROR: Fallo al registrar profesional {email}: {e}")
+        return False
+    finally:
+        if conn: conn.close()
+
+
+def insert_case(case_id: str, volunteer_email: str, ai_report: Dict[str, Any]) -> bool:
+    """
+    Inserta un nuevo caso clínico.
+    ai_report es un diccionario de Python que se insertará como JSONB.
+    """
+    conn = get_db_connection()
+    if conn is None:
+        return False
+
+    try:
+        cursor = conn.cursor()
+        # psycopg2 serializa automáticamente el dict a JSONB
+        cursor.execute("""
+            INSERT INTO cases (case_id, volunteer_email, ai_report)
+            VALUES (%s, %s, %s);
+        """, (case_id, volunteer_email, json.dumps(ai_report)))
+        
+        conn.commit()
+        return True
+
+    except Exception as e:
+        conn.rollback()
+        print(f"ERROR: Fallo al insertar caso {case_id}: {e}")
         return False
     finally:
         if conn: conn.close()
@@ -145,6 +200,139 @@ def update_professional_credits(email: str, amount: int) -> Optional[int]:
     except Exception as e:
         conn.rollback()
         print(f"ERROR DB al actualizar créditos para {email}: {e}")
+        return None
+    finally:
+        if conn: conn.close()
+
+def start_active_debate(case_id: str, professional_email: str) -> Optional[int]:
+    """
+    Inicia un debate activo. Marca el caso como no disponible y crea el registro de debate.
+    Retorna el ID del nuevo debate (debate_id) o None si falla.
+    """
+    conn = get_db_connection()
+    if conn is None: 
+        return None
+    
+    try:
+        cursor = conn.cursor()
+        
+        # 1. Marcar el caso como no disponible (is_available = FALSE)
+        cursor.execute(
+            "UPDATE cases SET is_available = FALSE WHERE case_id = %s AND is_available = TRUE;",
+            (case_id,)
+        )
+        
+        # Si no se actualizó ninguna fila, significa que el caso ya no estaba disponible o no existe.
+        if cursor.rowcount == 0:
+            conn.rollback()
+            print(f"ADVERTENCIA: No se pudo tomar el caso {case_id}. Puede que ya no esté disponible.")
+            return None
+            
+        # 2. Insertar el nuevo debate activo
+        cursor.execute("""
+            INSERT INTO active_debates (case_id, professional_email)
+            VALUES (%s, %s)
+            RETURNING debate_id;
+        """, (case_id, professional_email))
+        
+        debate_id = cursor.fetchone()[0]
+        conn.commit()
+        return debate_id
+        
+    except psycopg2.IntegrityError as e:
+        # Esto captura la violación de UNIQUE (case_id, professional_email) o FK.
+        conn.rollback()
+        print(f"ERROR: El debate ya existe o datos inválidos (FK violation): {e}")
+        return None
+    except Exception as e:
+        conn.rollback()
+        print(f"ERROR DB al iniciar debate para caso {case_id}: {e}")
+        return None
+    finally:
+        if conn: conn.close()
+
+def complete_active_debate(debate_id: int) -> bool:
+    """
+    Marca un debate activo como completado (is_completed = TRUE).
+    Retorna True si la actualización fue exitosa, False en caso contrario.
+    """
+    conn = get_db_connection()
+    if conn is None: 
+        return False
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE active_debates SET is_completed = TRUE WHERE debate_id = %s AND is_completed = FALSE;",
+            (debate_id,)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+        
+    except Exception as e:
+        conn.rollback()
+        print(f"ERROR DB al completar debate {debate_id}: {e}")
+        return False
+    finally:
+        if conn: conn.close()
+
+
+# --- Funciones de Lectura (GET) ---
+
+def get_user_type(email: str) -> Optional[str]:
+    """
+    Verifica si un usuario ha firmado el waiver y retorna su tipo ('volunteer' o 'professional').
+    Retorna None si no existe.
+    """
+    conn = get_db_connection()
+    if conn is None:
+        return None
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT user_type FROM waivers WHERE email = %s;",
+            (email,)
+        )
+        result = cursor.fetchone()
+        return result[0] if result else None
+    
+    except Exception as e:
+        print(f"ERROR al obtener tipo de usuario {email}: {e}")
+        return None
+    finally:
+        if conn: conn.close()
+
+def get_available_cases() -> Optional[List[Dict[str, Any]]]:
+    """
+    Obtiene una lista de todos los casos clínicos que están marcados como disponibles (is_available = TRUE).
+    """
+    conn = get_db_connection()
+    if conn is None:
+        return None
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT case_id, volunteer_email, ai_report, creation_timestamp 
+            FROM cases 
+            WHERE is_available = TRUE 
+            ORDER BY creation_timestamp DESC;
+        """)
+        
+        # Obtener los nombres de las columnas para crear un diccionario por fila
+        column_names = [desc[0] for desc in cursor.description]
+        cases_list = []
+        
+        for row in cursor.fetchall():
+            case_data = dict(zip(column_names, row))
+            # El campo ai_report ya es un diccionario gracias a la gestión de JSONB de psycopg2
+            cases_list.append(case_data)
+            
+        return cases_list
+    
+    except Exception as e:
+        print(f"ERROR al obtener casos disponibles: {e}")
         return None
     finally:
         if conn: conn.close()
