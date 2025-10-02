@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, status, Body
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Dict, Any
 import uuid
+import json # <-- ¡CORRECCIÓN APLICADA AQUÍ! Se requiere para json.loads()
 
 # Importaciones para la API de Gemini
 from google import genai
