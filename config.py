@@ -40,5 +40,5 @@ class Settings(BaseSettings):
     # y se confía en la carga automática del entorno.
     pass
 
-# Instancia de configuración que se importa en main.py
+# Instancia de configuración que se importa en main.py y otros servicios
 settings = Settings()
