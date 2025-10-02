@@ -88,3 +88,40 @@ def create_tables():
         print(f"ERROR al crear tablas: {e}")
     finally:
         if conn: conn.close()
+
+def insert_waiver(email: str, user_type: str) -> bool:
+    """
+    Inserta un nuevo registro de aceptación de términos legales (waiver).
+    Retorna True si la inserción fue exitosa, False en caso contrario.
+    """
+    conn = get_db_connection()
+    if conn is None:
+        return False
+
+    try:
+        cursor = conn.cursor()
+        # Usamos la cláusula ON CONFLICT DO NOTHING para manejar el caso donde el email ya existe (PK)
+        cursor.execute("""
+            INSERT INTO waivers (email, user_type)
+            VALUES (%s, %s)
+            ON CONFLICT (email) DO NOTHING
+            RETURNING email;
+        """, (email, user_type))
+        
+        # Si la inserción ocurre (no hubo conflicto), el cursor retorna algo
+        inserted_email = cursor.fetchone()
+        
+        conn.commit()
+        
+        # Retorna True si se insertó un nuevo registro (o si ya existía y no es un fallo)
+        # Para saber si se insertó *realmente* algo: cursor.rowcount > 0 
+        return cursor.rowcount > 0 or inserted_email is not None
+
+    except Exception as e:
+        conn.rollback()
+        # En un sistema real, distinguiríamos entre el error de duplicidad y un error grave.
+        # Aquí simplificamos, pero notamos el error.
+        print(f"ERROR: Fallo al insertar waiver para {email}: {e}")
+        return False
+    finally:
+        if conn: conn.close()
