@@ -3,7 +3,10 @@ from database import create_tables
 from payment_routes import router as payment_router
 from auth_routes import router as auth_router 
 from case_routes import router as case_router 
-from notification_service import run_expiration_alert_job, run_cleanup_job
+# ----------------------------------------------------------------------
+# ¡CAMBIO CLAVE AQUÍ!
+# Comentamos la importación del módulo faltante para que la app pueda iniciar.
+# from notification_service import run_expiration_alert_job, run_cleanup_job
 import time 
 
 # --- Inicialización de la Aplicación ---
@@ -41,27 +44,29 @@ async def root():
     """Ruta de diagnóstico para verificar que el servidor está activo."""
     return {"message": "Servidor activo y funcionando correctamente. Todos los módulos cargados."}
 
-# --- Ruta para Ejecutar CRON Jobs de Prueba (Solo para diagnóstico) ---
+# --- Ruta para Ejecutar CRON Jobs de Prueba (Dejada comentada para evitar errores) ---
+"""
 @app.get("/run-cron-jobs", tags=["Diagnóstico"])
 async def run_cron_jobs():
-    """
-    Ejecuta las funciones de monitoreo de caducidad y limpieza de debates.
-    ADVERTENCIA: En producción, estas funciones deben ser ejecutadas por un scheduler (ej: Render Cron Job),
-    no por un endpoint HTTP.
-    """
+    
+    # Ejecuta las funciones de monitoreo de caducidad y limpieza de debates.
+    # ADVERTENCIA: En producción, estas funciones deben ser ejecutadas por un scheduler (ej: Render Cron Job),
+    # no por un endpoint HTTP.
+    
     start_time = time.time()
     
     # Ejecutar Alerta (alerta a las 22h)
-    run_expiration_alert_job(hours_threshold=22)
+    # run_expiration_alert_job(hours_threshold=22)
     
     # Ejecutar Limpieza (libera casos a las 24h)
-    cases_released = run_cleanup_job(hours_threshold=24)
+    # cases_released = run_cleanup_job(hours_threshold=24)
     
     end_time = time.time()
     return {
         "message": "Tareas de CRON ejecutadas con éxito.",
-        "cases_released": cases_released,
+        # "cases_released": cases_released,
         "execution_time_seconds": round(end_time - start_time, 2)
     }
+"""
 
 # --- Configuración de CORS, Middlewares, etc. (irían aquí) ---
