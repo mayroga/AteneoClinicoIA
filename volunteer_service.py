@@ -1,134 +1,157 @@
-import psycopg2.extras
-import uuid
+from google import genai
+from google.genai import types
 import json
 import os
-from database import get_db_connection # Importación corregida
-from models import TesisClinica, VisualReference # Importación corregida
-from config import settings # Importación corregida
-from typing import Optional
+import psycopg2.extras
+from typing import Optional, Dict, Any
+from uuid import uuid4
 
-# NOTA: Necesitarías la librería 'google-genai' aquí
-# from google import genai 
-# client = genai.Client(api_key=settings.GEMINI_API_KEY)
+from config import settings
+from database import get_db_connection
+from models import TesisClinica
 
+# Inicialización del cliente Gemini
+gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+model_name = "gemini-2.5-flash" 
 
 # ----------------------------------------------------
-# 1. FUNCIÓN PRINCIPAL DE LA IA (Simulación del Proxy Visual)
+# LÓGICA DE PROCESAMIENTO DEL CASO (GEMINI VISION)
 # ----------------------------------------------------
 
-def generate_tesis_with_gemini(history_text: str, image_path: str) -> Optional[TesisClinica]:
+def generate_ai_report(history_text: str, image_path: str) -> Optional[TesisClinica]:
     """
-    Simula la llamada a Gemini 2.5 Pro Vision. Esto es el PROXY VISUAL.
-    
-    En el código real, se cargaría la imagen desde 'image_path' y se enviaría a la API.
+    Usa Gemini Vision para analizar el caso y generar una Tesis Clínica estructurada.
     """
-    # ... (El código de generación de prompt y llamada a Gemini iría aquí) ...
     
-    # --- SIMULACIÓN DEL OUTPUT DE LA IA (Neumonía, como ejemplo) ---
-    case_id = f"CASO-{str(uuid.uuid4())[:8].upper()}"
-    
-    simulated_tesis_data = {
-        "case_id": case_id,
-        "especialidad": "Medicina Interna",
-        "nivel_complejidad": "Experto",
-        "diagnostico_propuesto": "Neumonía Adquirida en la Comunidad (NAC) - Sospecha de Mycoplasma.",
-        "plan_tratamiento": "Azitromicina 500 mg dosis única, luego 250 mg diarios por 4 días más.",
-        "laboratorios_simulados": {"Leucocitos": "9,200/mm³", "Rx Tórax": "Infiltrado intersticial en base pulmonar izquierda."},
-        "referencia_visual": {
-            "reporte_textual": "Infiltrado de patrón intersticial sutil en base pulmonar izquierda, sin derrame.",
-            "search_term": "Radiografía de tórax infiltrado intersticial atípico"
+    # 1. Cargar la imagen
+    try:
+        with open(image_path, "rb") as f:
+            image_data = f.read()
+            image_part = types.Part.from_bytes(data=image_data, mime_type="image/jpeg")
+    except FileNotFoundError:
+        print("ERROR: Archivo de imagen no encontrado.")
+        return None
+
+    # 2. Definir el esquema JSON de salida (Crucial para la fiabilidad)
+    response_schema = {
+        "type": "OBJECT",
+        "properties": {
+            "case_id": {"type": "string"},
+            "patient_age": {"type": "integer"},
+            "patient_gender": {"type": "string"},
+            "chief_complaint": {"type": "string"},
+            "history_summary": {"type": "string"},
+            "ai_hypothesis": {"type": "string"},
+            "differential_diagnoses": {"type": "array", "items": {"type": "string"}},
+            "diagnostic_plan": {"type": "string"}
         },
-        "puntos_clave_debate": ["¿Es el Azitromicina el tratamiento de primera elección empírico?", "¿Se requiere hospitalización?"],
+        "required": ["case_id", "chief_complaint", "history_summary", "ai_hypothesis", "differential_diagnoses", "diagnostic_plan"]
     }
+
+    # 3. Prompt de la IA
+    system_prompt = (
+        "Eres un experto en simulación clínica y un sistema de anonimización. "
+        "Tu tarea es generar una 'Tesis Clínica' basada en una Historia Clínica e imagen de apoyo. "
+        "Asegura la anonimización. Genera la respuesta estrictamente en formato JSON de acuerdo al esquema."
+    )
+    user_prompt = (
+        f"Analiza la Historia Clínica provista y la imagen anexa. Genera una Tesis Clínica completa y estructurada. "
+        f"Historia Clínica: {history_text}"
+    )
+
+    try:
+        response = gemini_client.models.generate_content(
+            model=model_name,
+            contents=[user_prompt, image_part],
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                response_mime_type="application/json",
+                response_schema=response_schema
+            ),
+        )
+        
+        # 4. Parsear y validar la salida
+        json_str = response.candidates[0].content.parts[0].text.strip()
+        data = json.loads(json_str)
+        data['case_id'] = str(uuid4()) # Aseguramos un ID único
+
+        return TesisClinica(**data)
     
-    return TesisClinica(**simulated_tesis_data)
-
+    except Exception as e:
+        print(f"ERROR de Gemini en la generación de Tesis: {e}")
+        return None
 
 # ----------------------------------------------------
-# 2. PROCESAMIENTO PRINCIPAL DEL VOLUNTARIO (Anonimización)
+# LÓGICA DE BASE DE DATOS
 # ----------------------------------------------------
 
-def process_volunteer_case(email: str, history_text: str, image_path: Optional[str]) -> Optional[TesisClinica]:
+def process_volunteer_case(email: str, history_text: str, image_path: str) -> Optional[TesisClinica]:
     """
-    Función que gestiona el caso después del pago y Waiver.
+    Genera el reporte de IA y lo guarda en la DB.
     """
     conn = get_db_connection()
     if conn is None: return None
-    
-    # 1. Llamada a la IA para generar la Tesis Clínica
-    tesis = generate_tesis_with_gemini(history_text, image_path)
-    if tesis is None: return None
-    
-    # 2. ¡ELIMINACIÓN INMEDIATA DE LA IMAGEN! (Doble Protección HIPAA)
-    if image_path and os.path.exists(image_path):
-        os.remove(image_path)
-        print(f"DEBUG: IMAGEN TEMPORAL EN {image_path} HA SIDO ELIMINADA.")
-    
-    # 3. Almacenamiento Anónimo en la DB
+
+    # Llamada a la IA
+    ai_report = generate_ai_report(history_text, image_path)
+    if not ai_report:
+        conn.close()
+        return None
+        
     try:
         cursor = conn.cursor()
         
-        # Insertar el Caso Anónimo (ID único)
-        cursor.execute(
-            """
-            INSERT INTO casos_anonimos (case_id, tesis_clinica)
-            VALUES (%s, %s);
-            """,
-            (tesis.case_id, json.dumps(tesis.model_dump()))
-        )
-        
-        # 4. Vincular el caso ANÓNIMO al voluntario (para el reporte)
-        cursor.execute(
-            """
-            INSERT INTO voluntarios (email, case_id_linked)
-            VALUES (%s, %s)
-            ON CONFLICT (email) DO UPDATE
-            SET case_id_linked = EXCLUDED.case_id_linked;
-            """,
-            (email, tesis.case_id)
-        )
-        
-        conn.commit()
-        return tesis
+        # 1. Serializar el reporte de la IA a JSON para PostgreSQL
+        report_json = ai_report.model_dump_json()
 
+        # 2. Insertar el caso en la tabla 'cases'
+        cursor.execute(
+            "INSERT INTO cases (case_id, volunteer_email, ai_report) VALUES (%s, %s, %s);",
+            (ai_report.case_id, email, report_json)
+        )
+        conn.commit()
+        return ai_report
+        
     except Exception as e:
         conn.rollback()
-        print(f"Error al almacenar caso de voluntario: {e}")
+        print(f"ERROR DB al guardar el caso: {e}")
         return None
-    
     finally:
         if conn: conn.close()
 
-# ----------------------------------------------------
-# 3. Función de Recuperación de Reporte
-# ----------------------------------------------------
-
-def get_volunteer_report(email: str) -> Optional[TesisClinica]:
-    """Recupera la Tesis Clínica para el 'Reporte de Participación' del voluntario."""
+def get_volunteer_report_and_viral_message(email: str) -> Optional[Dict[str, Any]]:
+    """
+    Recupera la Tesis Clínica y prepara el mensaje viral.
+    """
     conn = get_db_connection()
     if conn is None: return None
-    
+
     try:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        
+        # Busca el último caso de este voluntario
         cursor.execute(
-            """
-            SELECT ta.tesis_clinica FROM voluntarios tv
-            JOIN casos_anonimos ta ON tv.case_id_linked = ta.case_id
-            WHERE tv.email = %s;
-            """,
+            "SELECT case_id, ai_report FROM cases WHERE volunteer_email = %s ORDER BY creation_timestamp DESC LIMIT 1;",
             (email,)
         )
+        case = cursor.fetchone()
         
-        report = cursor.fetchone()
-        if report:
-            # Asegura que el JSON se convierta en el modelo Pydantic
-            return TesisClinica(**report['tesis_clinica'])
+        if case:
+            case_id = case['case_id']
+            report_data = case['ai_report'] # Es un dict/json
+            
+            # Mensaje viral listo para copiar y pegar (Marketing viral orgánico)
+            viral_message = (
+                f"¡Desafío a la comunidad médica! Acabo de someter mi caso a la IA de Ateneo Clínico ({case_id}) "
+                f"para que miles de profesionales debatan el diagnóstico. "
+                f"La IA sugiere: '{report_data.get('ai_hypothesis', 'Diagnóstico no disponible')}'. "
+                f"¿Tienen un mejor diagnóstico? #AteneoIA #ClinicalDebate"
+            )
+            
+            return {'report': report_data, 'viral_message': viral_message}
         return None
         
     except Exception as e:
-        print(f"Error al obtener reporte de voluntario: {e}")
+        print(f"ERROR DB al recuperar reporte: {e}")
         return None
-        
     finally:
         if conn: conn.close()
