@@ -6,8 +6,8 @@ import asyncio
 import json 
 
 # --- IMPORTACIONES DE SERVICIOS REALES ---
-# Asegúrate de que 'configuracion' es el nombre correcto de tu módulo de settings
-from configuracion import settings 
+# FIX: Usamos 'config' que es el nombre correcto del módulo
+from config import settings 
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 import stripe # Cliente real de Stripe para cobros
@@ -266,17 +266,17 @@ async def register_professional_user(data: ProfessionalRegisterRequest):
         
         if result is None:
              raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-                detail="Error interno al conectar con la base de datos."
-            )
+                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+                 detail="Error interno al conectar con la base de datos."
+             )
 
         if 'error' in result:
             # Manejar el error de waiver no aceptado
             if 'Waiver no aceptado' in result['error']:
                  raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN, 
-                    detail=result['error']
-                )
+                     status_code=status.HTTP_403_FORBIDDEN, 
+                     detail=result['error']
+                 )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, 
                 detail=result['error']
