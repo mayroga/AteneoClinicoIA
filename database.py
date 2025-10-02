@@ -178,7 +178,7 @@ def update_professional_details(email: str, name: str, specialty: str) -> bool:
         if conn:
             conn.close()
 
-# --- Funciones de Casos (Implementadas) ---
+# --- Funciones de Casos ---
 
 def insert_case(professional_email: str, title: str, description: str) -> int | None:
     """Inserta un nuevo caso en la base de datos y devuelve su case_id."""
@@ -231,6 +231,35 @@ def get_case_by_id(case_id: int):
     finally:
         if conn:
             conn.close()
+
+# **FUNCIÓN FALTANTE AÑADIDA**
+def get_available_cases():
+    """Obtiene una lista de todos los casos con status 'open'."""
+    sql = """
+    SELECT case_id, professional_email, title, description, created_at
+    FROM cases
+    WHERE status = 'open'
+    ORDER BY created_at DESC;
+    """
+    conn = None
+    results = []
+    try:
+        conn = get_db_connection()
+        if conn:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                rows = cur.fetchall()
+                columns = ['case_id', 'professional_email', 'title', 'description', 'created_at']
+                for row in rows:
+                    results.append(dict(zip(columns, row)))
+        return results
+    except Exception as e:
+        print(f"ERROR: Fallo al obtener casos disponibles: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+# **FIN DE FUNCIÓN FALTANTE**
 
 # --- Funciones de Pagos (Créditos) ---
 def update_professional_credits(email: str, amount: int) -> bool:
