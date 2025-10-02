@@ -204,6 +204,30 @@ def update_professional_credits(email: str, amount: int) -> Optional[int]:
     finally:
         if conn: conn.close()
 
+def update_refutation_score(email: str, points: int) -> Optional[int]:
+    """Añade puntos al score_refutation (ranking) del profesional. Retorna el nuevo score."""
+    conn = get_db_connection()
+    if conn is None: 
+        return None
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE professionals SET score_refutation = score_refutation + %s WHERE email = %s RETURNING score_refutation;",
+            (points, email)
+        )
+        new_score = cursor.fetchone()
+        conn.commit()
+        return new_score[0] if new_score else None
+        
+    except Exception as e:
+        conn.rollback()
+        print(f"ERROR DB al actualizar score de refutación para {email}: {e}")
+        return None
+    finally:
+        if conn: conn.close()
+
+
 def start_active_debate(case_id: str, professional_email: str) -> Optional[int]:
     """
     Inicia un debate activo. Marca el caso como no disponible y crea el registro de debate.
@@ -303,6 +327,36 @@ def get_user_type(email: str) -> Optional[str]:
     finally:
         if conn: conn.close()
 
+def get_professional_profile(email: str) -> Optional[Dict[str, Any]]:
+    """
+    Obtiene todos los datos del perfil de un profesional, incluyendo créditos y ranking.
+    """
+    conn = get_db_connection()
+    if conn is None:
+        return None
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT email, name, specialty, credits, score_refutation FROM professionals WHERE email = %s;",
+            (email,)
+        )
+        result = cursor.fetchone()
+
+        if result:
+            # Obtener los nombres de las columnas para crear un diccionario
+            column_names = [desc[0] for desc in cursor.description]
+            return dict(zip(column_names, result))
+        else:
+            return None
+    
+    except Exception as e:
+        print(f"ERROR al obtener perfil de profesional {email}: {e}")
+        return None
+    finally:
+        if conn: conn.close()
+
+
 def get_available_cases() -> Optional[List[Dict[str, Any]]]:
     """
     Obtiene una lista de todos los casos clínicos que están marcados como disponibles (is_available = TRUE).
@@ -333,6 +387,42 @@ def get_available_cases() -> Optional[List[Dict[str, Any]]]:
     
     except Exception as e:
         print(f"ERROR al obtener casos disponibles: {e}")
+        return None
+    finally:
+        if conn: conn.close()
+
+
+def get_expiring_debates(hours_threshold: int = 22) -> Optional[List[Dict[str, Any]]]:
+    """
+    Obtiene debates activos que están a punto de caducar.
+    Por defecto, busca debates que tienen más de 22 horas activos (dejando 2 horas para la alerta).
+    Retorna una lista de diccionarios con la información relevante.
+    """
+    conn = get_db_connection()
+    if conn is None:
+        return None
+
+    try:
+        cursor = conn.cursor()
+        
+        # Consulta para encontrar debates que no están completados
+        # y cuyo tiempo de inicio es anterior a (ahora menos el umbral de horas).
+        cursor.execute(f"""
+            SELECT 
+                debate_id, professional_email, case_id, start_time
+            FROM active_debates 
+            WHERE is_completed = FALSE 
+            AND start_time < (CURRENT_TIMESTAMP - INTERVAL '{hours_threshold} hour')
+            ORDER BY start_time ASC;
+        """)
+        
+        column_names = [desc[0] for desc in cursor.description]
+        debates_list = [dict(zip(column_names, row)) for row in cursor.fetchall()]
+            
+        return debates_list
+    
+    except Exception as e:
+        print(f"ERROR al obtener debates a punto de caducar (>{hours_threshold}h): {e}")
         return None
     finally:
         if conn: conn.close()
