@@ -7,3 +7,4 @@ psycopg2-binary
 sendgrid  # <-- ¡NUEVA LIBRERÍA DE ENVÍO DE CORREOS!
 stripe
 pydantic
+email-validator
