@@ -125,3 +125,34 @@ def insert_waiver(email: str, user_type: str) -> bool:
         return False
     finally:
         if conn: conn.close()
+
+def register_professional(email: str, name: str, specialty: str) -> bool:
+    """
+    Inserta un nuevo registro de profesional con 0 créditos y 0 score_refutation.
+    Retorna True si la inserción fue exitosa (el email no existía), False en caso contrario.
+    """
+    conn = get_db_connection()
+    if conn is None:
+        return False
+
+    try:
+        cursor = conn.cursor()
+        # Insertamos el profesional. Si el email ya existe, simplemente no hacemos nada (PK conflict).
+        cursor.execute("""
+            INSERT INTO professionals (email, name, specialty, credits, score_refutation)
+            VALUES (%s, %s, %s, 0, 0)
+            ON CONFLICT (email) DO NOTHING
+            RETURNING email;
+        """, (email, name, specialty))
+        
+        conn.commit()
+        
+        # Si se insertó una fila, rowcount será 1
+        return cursor.rowcount > 0
+
+    except Exception as e:
+        conn.rollback()
+        print(f"ERROR: Fallo al registrar profesional {email}: {e}")
+        return False
+    finally:
+        if conn: conn.close()
