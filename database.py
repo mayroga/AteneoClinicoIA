@@ -59,7 +59,7 @@ def create_tables():
             print("INFO: Tablas de la base de datos verificadas/creadas.")
         except Exception as e:
             print(f"ERROR: Fallo al crear tablas: {e}")
-            # Corregido: Asegurar el rollback si hay error en la creación de tablas
+            # Asegurar el rollback si hay error en la creación de tablas
             conn.rollback()
         finally:
             conn.close()
@@ -178,7 +178,7 @@ def update_professional_details(email: str, name: str, specialty: str) -> bool:
         if conn:
             conn.close()
 
-# --- Funciones de Casos ---
+# --- Funciones de Casos (Implementadas y Corregidas) ---
 
 def insert_case(professional_email: str, title: str, description: str) -> int | None:
     """Inserta un nuevo caso en la base de datos y devuelve su case_id."""
@@ -232,7 +232,6 @@ def get_case_by_id(case_id: int):
         if conn:
             conn.close()
 
-# **FUNCIÓN FALTANTE AÑADIDA**
 def get_available_cases():
     """Obtiene una lista de todos los casos con status 'open'."""
     sql = """
@@ -259,7 +258,36 @@ def get_available_cases():
     finally:
         if conn:
             conn.close()
-# **FIN DE FUNCIÓN FALTANTE**
+
+# **FUNCIÓN FALTANTE CORREGIDA**
+def start_active_debate(case_id: int) -> bool:
+    """
+    Cambia el estado de un caso a 'active' para indicar que un debate ha comenzado
+    y asegura que el caso esté actualmente 'open'.
+    """
+    sql = """
+    UPDATE cases
+    SET status = 'active'
+    WHERE case_id = %s AND status = 'open';
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (case_id,))
+            conn.commit()
+            # Retorna True si una fila fue actualizada
+            return cur.rowcount > 0
+        return False
+    except Exception as e:
+        print(f"ERROR: Fallo al iniciar el debate para el caso {case_id}: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+# **FIN DE FUNCIÓN FALTANTE CORREGIDA**
+
 
 # --- Funciones de Pagos (Créditos) ---
 def update_professional_credits(email: str, amount: int) -> bool:
