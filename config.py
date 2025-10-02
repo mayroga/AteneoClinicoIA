@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str
 
     # Clave de Bypass Administrativo (Acceso gratis/ilimitado)
-    ADMIN_BYPASS_KEY: str = Field(..., default='MICHA991775')
+    # FIX: Se eliminó el '...' para evitar el TypeError de argumentos duplicados.
+    ADMIN_BYPASS_KEY: str = Field(default='MICHA991775')
 
 
     # Metadata de la configuración para pydantic-settings
