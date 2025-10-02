@@ -1,123 +1,167 @@
 import os
-# Importamos FastAPI y clases relacionadas
-from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel
-# Importamos la configuración que contiene la ADMIN_BYPASS_KEY
-from config import settings 
+from fastapi import FastAPI, Header, HTTPException, Request, Depends
+from pydantic import BaseModel, Field
+from typing import Optional
+import asyncio
+from config import settings # Importa la configuración actualizada (incluyendo precios y bypass)
 
-# Asegúrate de que las librerías necesarias (stripe, google-genai, sendgrid)
-# estén listadas en tu archivo requirements.txt
+# Asegúrate de haber instalado las dependencias necesarias:
+# fastapi, uvicorn, pydantic, pydantic-settings, python-dotenv, google-genai, sendgrid, stripe, psycopg2-binary
 
-# Inicialización de la aplicación FastAPI
-app = FastAPI(title="Ateneo Clínico IA Backend")
+# NOTA: Las importaciones de stripe y otros servicios están comentadas 
+# para evitar errores de despliegue hasta que el código real se implemente.
+# import stripe 
+# from sendgrid import SendGridAPIClient
 
-# --- Modelos de Pydantic ---
+app = FastAPI(
+    title="Ateneo Clínico IA Backend",
+    version="1.0.0",
+    description="Servicio backend para debate IA, pagos y notificaciones."
+)
 
-class PaymentDetails(BaseModel):
-    """Modelo para recibir los detalles de un intento de pago."""
-    amount: float
-    currency: str = "usd"
-    description: str
+# ==============================================================================
+# 1. ESQUEMAS DE DATOS
+# ==============================================================================
 
-class EmailDetails(BaseModel):
-    """Modelo para recibir los detalles de un envío de correo."""
+class TransactionResponse(BaseModel):
+    """Esquema de respuesta para las transacciones."""
+    status: str = Field(..., description="Estado de la transacción (éxito/fallo).")
+    message: str = Field(..., description="Mensaje detallado.")
+    amount: Optional[float] = Field(None, description="Monto del cobro aplicado, si hubo.")
+    user_type: Optional[str] = Field(None, description="Tipo de usuario para el cobro.")
+
+class EmailData(BaseModel):
+    """Esquema para el envío de correos."""
     recipient: str
     subject: str
-    content: str
-    
-class AiPrompt(BaseModel):
-    """Modelo para recibir la consulta de debate o asistencia."""
-    prompt: str
+    body: str
 
+# ==============================================================================
+# 2. FUNCIONES DE UTILIDAD (MOCK/Simuladas)
+# ==============================================================================
 
-# --- Servicios de Autenticación Ficticios ---
-
-# NOTA IMPORTANTE: Esta es una función simulada. 
-# En una aplicación real, esta función debe integrarse con tu sistema 
-# de autenticación (JWT, Firebase Auth, etc.) para obtener el ID real del usuario.
-def get_current_user_id(auth_token: str = "token_ejemplo") -> str:
+def get_current_user_id(request: Request) -> str:
     """
-    Obtiene el ID del usuario actual. Si el token coincide con la clave de bypass
-    o estamos en desarrollo, devuelve la clave de administrador.
+    Simula la obtención del ID del usuario autenticado (se espera en el encabezado 'X-User-ID').
     """
-    
-    # 1. Modo de prueba o si el token es la clave de bypass
-    # Se asume que el token de autenticación del administrador será igual a la clave.
-    if os.getenv("ENVIRONMENT") == "development" or auth_token == settings.admin_bypass_key:
-         # Retorna la clave de bypass si está configurada, sino un ID por defecto.
-         return settings.admin_bypass_key if settings.admin_bypass_key else "dev_id_default"
-    
-    # 2. Lógica de producción: ID de usuario normal
-    return "usuario_normal_45678" 
+    # Usamos un encabezado para simular la autenticación.
+    user_id = request.headers.get("x-user-id", "anonymous")
+    return user_id
 
-# --- Rutas de la Aplicación ---
+async def mock_ai_debate(query: str) -> str:
+    """
+    Función simulada para el debate con IA usando Google GenAI.
+    """
+    # Aquí iría el código real para usar settings.google_api_key y llamar a la API de Gemini.
+    print(f"Llamando a la IA con query: {query}")
+    await asyncio.sleep(1) # Simula latencia
+    return f"Respuesta de la IA para '{query}': La evidencia clínica sugiere una aproximación multifacética..."
+
+def mock_send_email(data: EmailData) -> bool:
+    """
+    Función simulada para enviar correos usando SendGrid.
+    """
+    # Aquí iría el código real para usar settings.sendgrid_api_key y llamar a SendGrid.
+    print(f"Correo simulado enviado a {data.recipient} desde {settings.default_sender_email} con asunto: {data.subject}")
+    return True
+
+# def create_payment_intent(amount: float):
+#     """Función real de Stripe para crear la intención de pago."""
+#     # Aquí iría el código real de Stripe.
+#     # stripe.api_key = settings.stripe_secret_key # Asume que tienes una clave secreta de Stripe en config
+#     # intent = stripe.PaymentIntent.create(...)
+#     # return intent.client_secret
+#     pass
+
+
+# ==============================================================================
+# 3. RUTAS DE LA APLICACIÓN
+# ==============================================================================
 
 @app.get("/")
-async def root():
-    """Ruta de prueba simple para verificar que el servidor está activo."""
-    return {"message": "¡Servidor Ateneo Clínico IA funcionando! URL Base: " + settings.app_base_url}
+def home():
+    """Ruta de salud para verificar que el servicio está funcionando."""
+    return {"status": "ok", "message": "Ateneo Clínico IA operativo."}
 
-@app.post("/process-transaction/")
+@app.post("/process-transaction/", response_model=TransactionResponse)
 async def process_transaction(
-    details: PaymentDetails, 
-    current_user_id: str = Depends(get_current_user_id) 
+    request: Request,
+    user_role: str = Header(..., description="Rol del usuario: 'volunteer' o 'professional'. Se espera en 'X-User-Role'."),
 ):
     """
-    Procesa una transacción. El cobro se omite si el ID del usuario coincide 
-    con la ADMIN_BYPASS_KEY.
+    Procesa la solicitud de pago, aplicando precios segmentados
+    por tipo de usuario y la exención para el desarrollador.
     """
+    current_user_id = get_current_user_id(request)
     
-    # 1. Lógica de acceso gratuito / ilimitado (ADMIN_BYPASS_KEY)
-    # Verifica si el ID del usuario actual es igual a la clave de administrador configurada
-    if current_user_id == settings.admin_bypass_key and settings.admin_bypass_key:
-        print(f"Clave de bypass de administrador detectada ({current_user_id}). Pago OMITIDO.")
-        return {
-            "status": "success", 
-            "message": "Transacción completada, acceso ilimitado concedido (ADMIN BYPASS).",
-            "transaction_id": "ADMIN_FREE_ACCESS"
-        }
+    # ----------------------------------------------------------------------
+    # LÓGICA DE ACCESO GRATUITO PARA EL DESARROLLADOR (BYPASS)
+    # ----------------------------------------------------------------------
+    if current_user_id == settings.admin_bypass_key and settings.admin_bypass_key != "":
+        return TransactionResponse(
+            status="success",
+            message=f"ACCESO GRATUITO ILIMITADO: Bypass activado para el usuario {current_user_id}.",
+            amount=0.0,
+            user_type="Developer (Bypass)"
+        )
 
-    # 2. Lógica de pago real (Solo para usuarios normales)
+    # ----------------------------------------------------------------------
+    # LÓGICA DE PRECIOS SEGMENTADOS POR TIPO DE USUARIO
+    # ----------------------------------------------------------------------
+    
+    user_role_lower = user_role.lower()
+    
+    if user_role_lower == 'volunteer':
+        price_to_charge = settings.price_volunteer  # $40.00
+        user_type_charged = "Voluntario"
+    elif user_role_lower == 'professional':
+        price_to_charge = settings.price_professional # $149.99
+        user_type_charged = "Profesional"
+    else:
+        # Si no se proporciona un rol válido.
+        raise HTTPException(
+            status_code=400, 
+            detail="Rol de usuario no válido. Debe ser 'volunteer' o 'professional'. Asegúrate de enviar el encabezado 'X-User-Role'."
+        )
+
+    # ----------------------------------------------------------------------
+    # PROCESAMIENTO DE PAGO REAL (SIMULADO)
+    # ----------------------------------------------------------------------
+    
+    # Aquí es donde usarías la función real de Stripe:
+    # client_secret = create_payment_intent(price_to_charge) 
+    
     try:
-        # Aquí se integraría la llamada real al API de Stripe 
-        # (ej: payment_intent = stripe_service.create_payment_intent(...))
+        # Simulamos el éxito del cobro (Reemplazar con lógica de Stripe)
+        print(f"Iniciando cobro de {price_to_charge} USD para {user_type_charged}...")
         
-        # Simulación del proceso de pago:
-        payment_intent_id = f"pi_REAL_{int(details.amount * 100)}_{current_user_id}"
-        
-        return {
-            "status": "success",
-            "message": "Pago procesado con éxito usando Stripe.",
-            "transaction_id": payment_intent_id
-        }
-
+        return TransactionResponse(
+            status="success",
+            message=f"Cobro de {price_to_charge} USD iniciado con éxito para el rol de {user_type_charged}. Se requiere confirmación de Stripe.",
+            amount=price_to_charge,
+            user_type=user_type_charged
+        )
     except Exception as e:
-        # Manejo de errores de pago
-        raise HTTPException(status_code=500, detail=f"Error al procesar el pago: {e}")
+        # Manejo de errores de Stripe
+        raise HTTPException(status_code=500, detail=f"Fallo al procesar el pago: {str(e)}")
 
-# --- Rutas de IA y Correo (Ejemplos de integración) ---
 
 @app.post("/debate/")
-async def handle_debate(data: AiPrompt):
-    """Maneja las interacciones de debate o asistencia con Google GenAI."""
-    # Lógica para llamar al modelo Gemini usando settings.google_api_key
-    # client = genai.Client(api_key=settings.google_api_key)
-    # response = client.models.generate_content(...)
+async def debate_ai(query: str):
+    """Permite a los usuarios interactuar con el modelo de IA (Gemini)."""
+    if not settings.google_api_key:
+        raise HTTPException(status_code=503, detail="Servicio de IA no configurado (Falta GOOGLE_API_KEY).")
     
-    return {
-        "response": f"AI está procesando tu consulta: '{data.prompt}'.",
-        "service": "Google GenAI (Gemini)"
-    }
+    response = await mock_ai_debate(query)
+    return {"query": query, "response": response}
 
-@app.post("/send-mail/")
-async def send_mail_route(data: EmailDetails):
-    """Envía un correo usando SendGrid."""
-    # Lógica para SendGrid con settings.sendgrid_api_key
-    # from sendgrid import SendGridAPIClient
-    # sg = SendGridAPIClient(settings.sendgrid_api_key)
+@app.post("/send-notification/")
+async def send_notification(data: EmailData):
+    """Envía notificaciones por correo electrónico a los usuarios."""
+    if not settings.sendgrid_api_key:
+        raise HTTPException(status_code=503, detail="Servicio de correo no configurado (Falta SENDGRID_API_KEY).")
     
-    return {
-        "status": "success", 
-        "message": f"Correo a {data.recipient} enviado desde {settings.default_sender_email}.",
-        "subject": data.subject
-    }
+    if mock_send_email(data):
+        return {"status": "success", "message": "Correo enviado con éxito desde " + settings.default_sender_email}
+    else:
+        raise HTTPException(status_code=500, detail="Fallo al enviar el correo.")
