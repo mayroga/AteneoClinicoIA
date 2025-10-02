@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, status, Body
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Dict, Any
 import uuid
-import json # <-- ¡CORRECCIÓN APLICADA AQUÍ! Se requiere para json.loads()
+import json # <-- Importación requerida para json.loads()
 
 # Importaciones para la API de Gemini
 from google import genai
@@ -17,7 +17,8 @@ from database import (
     update_professional_credits, 
     start_active_debate, 
     update_refutation_score,
-    complete_active_debate
+    complete_active_debate,
+    get_ai_report_by_debate_id # <-- NUEVA FUNCIÓN IMPORTADA
 )
 from auth_routes import AuthResult # Usamos la clase de resultado de autenticación
 
@@ -229,7 +230,7 @@ def take_case_for_debate(case_id: str, auth: AuthResult = Depends(is_professiona
 
     if debate_id is None:
         # Revertir el crédito si el debate no pudo iniciar (ej: caso ya tomado)
-        update_professional_credits(professional_email, 1) 
+        update_professional_credits(professional_email, 1)  
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
             detail="El caso ya fue tomado o no está disponible."
@@ -246,36 +247,33 @@ def take_case_for_debate(case_id: str, auth: AuthResult = Depends(is_professiona
 def submit_refutation(data: RefutationRequest, auth: AuthResult = Depends(is_professional)):
     """
     Ruta para que el Profesional envíe su refutación final.
-    1. Evalúa la refutación con la IA.
-    2. Si pasa el umbral, actualiza el ranking.
-    3. Cierra el debate.
+    1. Obtiene el reporte de IA original.
+    2. Evalúa la refutación con la IA.
+    3. Si pasa el umbral, actualiza el ranking.
+    4. Cierra el debate.
     """
-    # Nota: Aquí deberíamos obtener el ai_report original del caso para la puntuación. 
-    # Por simplicidad, asumiremos que el profesional tiene acceso a él y se pasa implícitamente.
-    # En una versión más compleja, obtendríamos el case_id desde el debate_id y luego el ai_report.
+    # 1. Obtener el reporte de IA real a partir del ID del debate
+    ai_report = get_ai_report_by_debate_id(data.debate_id)
     
-    # SIMULACIÓN DE OBTENCIÓN DE REPORTE AI:
-    # Para que el código sea ejecutable, asumimos un mock de reporte.
-    # *En producción, este paso requeriría una consulta a la DB.*
-    mock_ai_report = {
-        "ai_diagnosis": "Neumonía Atípica por Mycoplasma.",
-        "ai_justification": "Fiebre baja, tos seca y síntomas extrapulmonares indican Mycoplasma.",
-        "ai_questions": ["¿Se realizó serología?", "¿Hay leucocitosis?", "¿Responde a Macrólidos?"]
-    }
+    if not ai_report:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El debate activo o el reporte de IA asociado no fue encontrado."
+        )
 
-    # 1. Puntuación de la refutación por la IA
-    score = score_refutation(mock_ai_report, data.refutation_text)
+    # 2. Puntuación de la refutación por la IA
+    score = score_refutation(ai_report, data.refutation_text)
     
     message = "Refutación enviada. Recibirás tu puntuación y retroalimentación pronto."
     
-    # 2. Actualizar Ranking si la puntuación es alta (Ej: Umbral de éxito = 80 puntos)
+    # 3. Actualizar Ranking si la puntuación es alta (Ej: Umbral de éxito = 80 puntos)
     if score >= 80:
         update_refutation_score(auth.email, 1) # Añadir 1 punto al ranking por refutación exitosa
         message = f"¡Felicidades! Tu refutación (Puntuación: {score}) ha sido exitosa y has ganado 1 punto de ranking."
     else:
         message = f"Refutación completada (Puntuación: {score}). No alcanzó el umbral para ganar ranking esta vez."
     
-    # 3. Marcar el debate como completado
+    # 4. Marcar el debate como completado
     success_close = complete_active_debate(data.debate_id)
     
     if not success_close:
