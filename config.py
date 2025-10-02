@@ -1,71 +1,32 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
-import os
-from typing import Optional
-
-# Carga variables de entorno desde un archivo .env si existe (útil para desarrollo local)
-from dotenv import load_dotenv
-load_dotenv()
 
 class Settings(BaseSettings):
-    """
-    Configuración de la aplicación que carga las variables de entorno.
-    Incluye precios segmentados por tipo de usuario y acceso de bypass.
-    """
+    # Claves de Servicio
+    google_api_key: str = Field(default="", description="Clave API de Google para el modelo Gemini.")
+    sendgrid_api_key: str = Field(default="", description="Clave API de SendGrid para el envío de correos.")
+    database_url: str = Field(default="", description="URL de conexión a la base de datos PostgreSQL.")
     
-    # --- Configuración del Servidor y URL Propio ---
-    app_base_url: str = Field(
-        default="https://ateneoclinicoia.onrender.com", 
-        description="El URL base de la aplicación para enlaces."
-    )
-    
-    # --- Precios por Tipo de Usuario (NUEVO) ---
-    # Voluntarios: $40.00 (Dentro del rango $30-$50)
-    price_volunteer: float = Field(
-        default=40.00,
-        description="Precio de suscripción para Voluntarios (Ejemplo: $40.00)."
-    )
-    # Profesionales: $149.99 (Por encima de $120)
-    price_professional: float = Field(
-        default=149.99,
-        description="Precio de suscripción para Profesionales (Ejemplo: $149.99)."
-    )
-    
-    # --- Claves Secretas para Servicios Externos ---
+    # NUEVA CLAVE: Clave Secreta de Stripe para cobros.
+    stripe_secret_key: str = Field(default="", description="Clave Secreta de Stripe para procesar pagos.")
 
-    # Clave de API para Google GenAI (Gemini)
-    google_api_key: str = Field(
-        default="", 
-        description="Clave de API para el servicio de Google Gemini."
-    )
+    # URL de la Aplicación
+    app_base_url: str = Field("https://ateneoclinicoia.onrender.com", description="URL base de la aplicación para enlaces.")
+
+    # Configuración de Acceso y Precios
+    admin_bypass_key: str = Field(default="", description="Clave secreta para el acceso ilimitado del desarrollador (ID de usuario).")
     
-    # Clave de API para SendGrid
-    sendgrid_api_key: str = Field(
-        default="",
-        description="Clave de API para el envío de correos electrónicos con SendGrid."
-    )
+    # Precios Segmentados por Rol
+    price_volunteer: float = Field(40.00, description="Precio de la suscripción para Voluntarios (USD).")
+    price_professional: float = Field(149.99, description="Precio de la suscripción para Profesionales (USD).")
     
-    # Configuración de la Base de Datos (PostgreSQL)
-    database_url: str = Field(
-        default="",
-        description="URL de conexión completo para la base de datos PostgreSQL."
-    )
+    # Configuración de Correo
+    default_sender_email: str = Field("noreply@ateneoclinicoia.com", description="Correo electrónico del remitente por defecto.")
 
-    # CLAVE DE BYPASS: Lee la variable de entorno ADMIN_BYPASS_KEY
-    admin_bypass_key: str = Field(
-        default="", 
-        description="Clave de acceso de administrador para exención de pago y privilegios."
+    model_config = SettingsConfigDict(
+        env_file='.env', 
+        env_file_encoding='utf-8', 
+        extra='allow'
     )
-
-    # Email del remitente
-    default_sender_email: str = Field(
-        default="no-responder@ateneoclinicoia.com",
-        description="Dirección de correo electrónico del remitente por defecto."
-    )
-
-    class Config:
-        env_file = ".env"
-        env_prefix = ''
-        extra = "ignore" 
 
 settings = Settings()
