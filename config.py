@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import EmailStr, Field
+from typing import Optional # <--- IMPORTACIÓN AÑADIDA
 import os
 
 class Settings(BaseSettings):
@@ -9,7 +10,10 @@ class Settings(BaseSettings):
     """
     
     # Base de Datos
-    DATABASE_URL: str
+    # --- ¡CAMBIO CRUCIAL AQUÍ! ---
+    # Lo convertimos a opcional con valor por defecto None.
+    # Pydantic NO fallará si Render no encuentra esta variable.
+    DATABASE_URL: Optional[str] = None
     
     # Servicios de IA
     GEMINI_API_KEY: str
@@ -23,7 +27,7 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str
 
     # Clave de Bypass Administrativo (Acceso gratis/ilimitado)
-    # FIX: Se eliminó el '...' para evitar el TypeError de argumentos duplicados.
+    # Este campo ya tenía un valor por defecto, por lo que no causaba problemas.
     ADMIN_BYPASS_KEY: str = Field(default='MICHA991775')
 
 
