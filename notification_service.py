@@ -1,4 +1,3 @@
-# notification_service.py
 import time
 # Asume que esta función ya está disponible en tu base de datos
 from database import get_db_connection 
@@ -23,4 +22,4 @@ def run_cleanup_job(hours_threshold: int) -> int:
     print(f"INFO: [JOB CLEANUP] Buscando casos con más de {hours_threshold} horas para limpiar/archivar (PENDIENTE DE LOGICA)...")
     time.sleep(0.1)
     # Aquí iría la lógica real de DB SELECT/UPDATE
-    return 0
+    return 0 
