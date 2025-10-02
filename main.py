@@ -15,12 +15,14 @@ from google import genai # Cliente real de Google GenAI para IA
 import psycopg2 
 from psycopg2 import OperationalError
 from starlette.responses import JSONResponse 
+from starlette.background import BackgroundTasks # Necesario para procesar el webhook en segundo plano
 
 # Importar utilidades de la base de datos
 import database 
 # Importar servicios de lógica
 import professional_service 
 import volunteer_service 
+import stripe_service # ¡Importación añadida para Webhook!
 
 # Inicialización de la aplicación FastAPI
 app = FastAPI(
@@ -94,9 +96,7 @@ class ProfessionalProfile(BaseModel):
     score_refutation: int
     is_new: Optional[bool] = None
     
-# ----------------------------------------------------
 # Esquema de Input para el Voluntario (Ahora con imagen)
-# ----------------------------------------------------
 class ClinicalCaseInput(BaseModel):
     """Esquema para la entrada de datos del caso clínico (texto e imagen) por el voluntario."""
     volunteer_email: EmailStr = Field(..., description="Email del voluntario que sube el caso.")
@@ -105,7 +105,7 @@ class ClinicalCaseInput(BaseModel):
 
 
 # ==============================================================================
-# 2. FUNCIONES DE SERVICIO REAL
+# 2. FUNCIONES DE SERVICIO REAL (Simulaciones)
 # ==============================================================================
 
 def get_current_user_id(request: Request) -> str:
@@ -119,6 +119,7 @@ def create_payment_intent(amount: float, currency: str = 'usd') -> dict:
         raise Exception("Clave Secreta de Stripe no configurada. Cobro real deshabilitado.")
     
     try:
+        # Crea la intención de pago
         intent = stripe.PaymentIntent.create(
             amount=int(amount * 100), 
             currency=currency,
@@ -144,7 +145,6 @@ async def ai_debate_service(query: str) -> str:
         system_instruction = ("Eres un experto en el ateneo clínico, especializado en debatir casos complejos "
                               "y proporcionar un análisis médico riguroso basado en evidencia.")
 
-        # Usar asyncio.to_thread para correr el cliente síncrono de Gemini sin bloquear FastAPI
         response = await asyncio.to_thread(
             client.models.generate_content,
             model='gemini-2.5-flash',
@@ -334,10 +334,8 @@ async def get_case_for_debate(email: EmailStr):
 def volunteer_generate_thesis(data: ClinicalCaseInput):
     """
     Recibe la historia clínica y la imagen, genera la Tesis Clínica estructurada con 
-    la IA (Vision) y la guarda en la DB.
+    la IA (Vision) y la guarda en la DB. Esta ruta es SÍNCRONA.
     """
-    # Nota Importante: La función del servicio ahora es SÍNCRONA, por eso la ruta también lo es (def).
-
     # VALIDACIÓN DE RUTA DE IMAGEN (temporal)
     if not os.path.exists(data.image_path):
         raise HTTPException(
@@ -347,7 +345,7 @@ def volunteer_generate_thesis(data: ClinicalCaseInput):
         )
     
     try:
-        # Llama a la función del nuevo servicio síncrono
+        # Llama a la función del servicio síncrono
         ai_report_model = volunteer_service.process_volunteer_case(
             email=data.volunteer_email,
             history_text=data.clinical_data,
@@ -373,15 +371,14 @@ def volunteer_generate_thesis(data: ClinicalCaseInput):
         )
         
 # ----------------------------------------------------
-# 3.5 FLUJO VOLUNTARIO - OBTENER REPORTE Y MENSAJE VIRAL (NUEVO)
+# 3.5 FLUJO VOLUNTARIO - OBTENER REPORTE Y MENSAJE VIRAL
 # ----------------------------------------------------
 
 @app.get("/volunteer/report-and-message/{email}", response_model=Dict[str, Any], status_code=status.HTTP_200_OK)
 def get_report_and_viral_message_route(email: EmailStr):
     """
-    Recupera el último caso generado por el voluntario y su mensaje viral asociado.
+    Recupera el último caso generado por el voluntario y su mensaje viral asociado. Esta ruta es SÍNCRONA.
     """
-    # La función del servicio es SÍNCRONA.
     result = volunteer_service.get_volunteer_report_and_viral_message(email)
     
     if result is None:
@@ -510,3 +507,27 @@ async def send_notification(data: EmailData):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail="Fallo al enviar el correo con SendGrid. Revisa la clave o el email del remitente."
         )
+
+# ----------------------------------------------------
+# 3.8 WEBHOOK DE STRIPE (CRÍTICO PARA CONFIRMAR PAGOS)
+# ----------------------------------------------------
+
+@app.post("/stripe/webhook", status_code=status.HTTP_200_OK)
+async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
+    """
+    Recibe eventos de Stripe, verifica la firma y actualiza la base de datos.
+    Debe retornar inmediatamente 200 OK a Stripe.
+    """
+    # 1. Obtener el encabezado de firma
+    sig_header = request.headers.get('stripe-signature')
+    if not sig_header:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Falta el encabezado Stripe-Signature")
+
+    # 2. Obtener el cuerpo de la solicitud como bytes (necesario para la verificación de firma)
+    payload = await request.body()
+    
+    # 3. Procesar el evento en segundo plano para no bloquear a Stripe
+    background_tasks.add_task(stripe_service.handle_webhook_event, payload, sig_header)
+    
+    # 4. Retornar inmediatamente 200 OK a Stripe
+    return {"status": "success", "message": "Webhook recibido y procesando en segundo plano."}
