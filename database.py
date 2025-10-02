@@ -1,428 +1,267 @@
 import psycopg2
-from psycopg2 import OperationalError
-from typing import Optional, List, Dict, Any # Agregado para tipado
-import json # Necesario para manejar la serialización de JSONB
-# CORREGIDO: Usamos 'configuracion' para ser consistentes con main.py
-from configuracion import settings
+from psycopg2 import sql
+from psycopg2.extras import Json
+from datetime import datetime, timedelta
+from typing import Optional, List, Dict, Any
+
+# CORRECCIÓN: Se importa desde 'config'
+from config import settings 
+
+# Configuración y conexión de la base de datos
+try:
+    conn = psycopg2.connect(settings.DATABASE_URL)
+    conn.autocommit = True
+    print("INFO: Conexión a PostgreSQL exitosa.")
+except Exception as e:
+    print(f"ERROR: No se pudo conectar a PostgreSQL usando DATABASE_URL. Error: {e}")
+    conn = None
 
 def get_db_connection():
-    """
-    Establece y retorna una conexión a la base de datos usando la DATABASE_URL completa.
-    Retorna la conexión (psycopg2) o None si falla.
-    """
-    if not settings.database_url:
-        print("ADVERTENCIA: DATABASE_URL no está configurada en settings.")
-        return None
-        
-    try:
-        # Conexión utilizando la URL completa, estándar para entornos cloud (Render).
-        # Esto simplifica la configuración a una sola variable.
-        conn = psycopg2.connect(settings.database_url)
+    """Retorna la conexión de DB si está activa."""
+    if conn and not conn.closed:
         return conn
-    except OperationalError as e:
-        # Esto captura fallos como credenciales incorrectas o servidor no disponible.
-        print(f"ERROR: Fallo de conexión a PostgreSQL: {e}")
+    # Intenta reconectar si la conexión se perdió
+    try:
+        global conn
+        conn = psycopg2.connect(settings.DATABASE_URL)
+        conn.autocommit = True
+        return conn
+    except Exception as e:
+        print(f"ERROR: Fallo en reconexión a DB. {e}")
+        return None
+
+def execute_query(query: sql.Composed, fetchone: bool = False, fetchall: bool = False):
+    """Ejecuta una consulta SQL y maneja la conexión."""
+    db_conn = get_db_connection()
+    if not db_conn:
+        return None
+
+    try:
+        with db_conn.cursor() as cur:
+            cur.execute(query)
+            if fetchone:
+                return cur.fetchone()
+            if fetchall:
+                return cur.fetchall()
+            return True
+    except psycopg2.Error as e:
+        print(f"ERROR al ejecutar query: {e}")
         return None
     except Exception as e:
-        print(f"ERROR inesperado al conectar a DB: {e}")
+        print(f"ERROR inesperado en DB: {e}")
         return None
+
+# --- Creación de Tablas ---
 
 def create_tables():
-    """Crea las tablas de la base de datos si no existen."""
-    conn = get_db_connection()
-    if conn is None: 
-        print("ERROR: No se pudo establecer la conexión a la DB para crear tablas.")
-        return
+    """Crea las tablas de la DB si no existen."""
+    queries = [
+        # Tabla de Perfiles (Profesional/Voluntario)
+        """
+        CREATE TABLE IF NOT EXISTS profiles (
+            email VARCHAR(255) PRIMARY KEY,
+            user_type VARCHAR(20) NOT NULL CHECK (user_type IN ('professional', 'volunteer')),
+            is_waiver_signed BOOLEAN NOT NULL DEFAULT FALSE,
+            ranking_score INT DEFAULT 0,
+            credits INT DEFAULT 0,
+            created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+        # Tabla de Casos Clínicos (Subidos por Voluntarios)
+        """
+        CREATE TABLE IF NOT EXISTS cases (
+            id SERIAL PRIMARY KEY,
+            case_id VARCHAR(50) UNIQUE NOT NULL,
+            volunteer_email VARCHAR(255) REFERENCES profiles(email),
+            ai_report JSONB NOT NULL,
+            is_available BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+        # Tabla de Debates Activos (Cuando un Profesional toma un caso)
+        """
+        CREATE TABLE IF NOT EXISTS active_debates (
+            id SERIAL PRIMARY KEY,
+            case_id VARCHAR(50) UNIQUE REFERENCES cases(case_id),
+            professional_email VARCHAR(255) REFERENCES profiles(email),
+            start_time TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            is_completed BOOLEAN NOT NULL DEFAULT FALSE
+        );
+        """
+    ]
+    
+    for q in queries:
+        execute_query(sql.SQL(q))
+    
+    print("INFO: Tablas de la base de datos verificadas/creadas.")
 
-    try:
-        cursor = conn.cursor()
-        
-        # 1. Tabla de Aceptación Legal (Waivers)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS waivers (
-                email VARCHAR(255) PRIMARY KEY,
-                user_type VARCHAR(50) NOT NULL,
-                acceptance_timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        
-        # 2. Tabla de Profesionales (Ranking y Créditos)
-        # score_refutation es el ranking de la aplicación.
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS professionals (
-                email VARCHAR(255) PRIMARY KEY,
-                name VARCHAR(255),
-                specialty VARCHAR(100),
-                credits INTEGER DEFAULT 0,
-                score_refutation INTEGER DEFAULT 0
-            );
-        """)
-        
-        # 3. Tabla de Casos Clínicos (Para Voluntarios y Profesionales)
-        # El campo ai_report es JSONB para almacenar el output estructurado de Gemini.
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS cases (
-                case_id VARCHAR(50) PRIMARY KEY,
-                volunteer_email VARCHAR(255) REFERENCES waivers(email),
-                ai_report JSONB NOT NULL,
-                creation_timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                is_available BOOLEAN DEFAULT TRUE 
-            );
-        """)
-        
-        # 4. Tabla de Debates Activos (Para la Monetización 24/7 y Caducidad)
-        # Esto es crucial para el CRON JOB y la alerta de urgencia.
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS active_debates (
-                debate_id SERIAL PRIMARY KEY,
-                case_id VARCHAR(50) REFERENCES cases(case_id),
-                professional_email VARCHAR(255) REFERENCES professionals(email),
-                start_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                is_completed BOOLEAN DEFAULT FALSE,
-                UNIQUE (case_id, professional_email)
-            );
-        """)
-        
-        conn.commit()
-        print("DEBUG: Tablas de la base de datos verificadas/creadas con éxito.")
-    except Exception as e:
-        conn.rollback()
-        print(f"ERROR al crear tablas: {e}")
-    finally:
-        if conn: conn.close()
+# --- Funciones de Perfiles ---
 
-# --- Funciones de Inserción y Actualización ---
+def get_profile_by_email(email: str) -> Optional[Dict[str, Any]]:
+    """Obtiene un perfil por email."""
+    query = sql.SQL("SELECT email, user_type, is_waiver_signed, ranking_score, credits FROM profiles WHERE email = %s;")
+    result = execute_query(query, fetchone=True, params=[email])
+    if result:
+        # Mapear los resultados a un diccionario
+        keys = ['email', 'user_type', 'is_waiver_signed', 'ranking_score', 'credits']
+        return dict(zip(keys, result))
+    return None
 
-def insert_waiver(email: str, user_type: str) -> bool:
-    """
-    Inserta un nuevo registro de aceptación de términos legales (waiver).
-    Retorna True si la inserción fue exitosa, False en caso contrario.
-    """
-    conn = get_db_connection()
-    if conn is None:
-        return False
+def create_profile(email: str, user_type: str) -> bool:
+    """Crea un nuevo perfil (volunteer o professional)."""
+    query = sql.SQL("INSERT INTO profiles (email, user_type) VALUES (%s, %s) ON CONFLICT (email) DO NOTHING;")
+    return execute_query(query, params=[email, user_type])
 
-    try:
-        cursor = conn.cursor()
-        # Usamos la cláusula ON CONFLICT DO NOTHING para manejar el caso donde el email ya existe (PK)
-        cursor.execute("""
-            INSERT INTO waivers (email, user_type)
-            VALUES (%s, %s)
-            ON CONFLICT (email) DO NOTHING
-            RETURNING email;
-        """, (email, user_type))
-        
-        inserted_email = cursor.fetchone()
-        
-        conn.commit()
-        
-        # Retorna True si se insertó un nuevo registro (cursor.rowcount > 0) o si ya existía y la operación fue exitosa.
-        return True
+def sign_waiver(email: str) -> bool:
+    """Marca el waiver legal como firmado."""
+    query = sql.SQL("UPDATE profiles SET is_waiver_signed = TRUE WHERE email = %s;")
+    return execute_query(query, params=[email])
 
-    except Exception as e:
-        conn.rollback()
-        print(f"ERROR: Fallo al insertar waiver para {email}: {e}")
-        return False
-    finally:
-        if conn: conn.close()
-
-def insert_professional(email: str, name: str, specialty: str) -> bool:
-    """
-    Registra un nuevo profesional. El email debe existir previamente en la tabla waivers.
-    """
-    conn = get_db_connection()
-    if conn is None:
-        return False
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO professionals (email, name, specialty)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (email) DO UPDATE
-            SET name = EXCLUDED.name, specialty = EXCLUDED.specialty;
-        """, (email, name, specialty))
-        
-        conn.commit()
-        return True
-
-    except Exception as e:
-        conn.rollback()
-        print(f"ERROR: Fallo al registrar profesional {email}: {e}")
-        return False
-    finally:
-        if conn: conn.close()
-
-
-def insert_case(case_id: str, volunteer_email: str, ai_report: Dict[str, Any]) -> bool:
-    """
-    Inserta un nuevo caso clínico.
-    ai_report es un diccionario de Python que se insertará como JSONB.
-    """
-    conn = get_db_connection()
-    if conn is None:
-        return False
-
-    try:
-        cursor = conn.cursor()
-        # psycopg2 serializa automáticamente el dict a JSONB
-        cursor.execute("""
-            INSERT INTO cases (case_id, volunteer_email, ai_report)
-            VALUES (%s, %s, %s);
-        """, (case_id, volunteer_email, json.dumps(ai_report)))
-        
-        conn.commit()
-        return True
-
-    except Exception as e:
-        conn.rollback()
-        print(f"ERROR: Fallo al insertar caso {case_id}: {e}")
-        return False
-    finally:
-        if conn: conn.close()
+def get_professional_profile(email: str) -> Optional[Dict[str, Any]]:
+    """Obtiene el perfil de un profesional con sus créditos."""
+    query = sql.SQL("SELECT ranking_score, credits FROM profiles WHERE email = %s AND user_type = 'professional';")
+    result = execute_query(query, fetchone=True, params=[email])
+    if result:
+        keys = ['ranking_score', 'credits']
+        return dict(zip(keys, result))
+    return None
 
 def update_professional_credits(email: str, amount: int) -> Optional[int]:
-    """Añade o resta créditos al profesional. Retorna el nuevo total de créditos."""
-    conn = get_db_connection()
-    if conn is None: 
-        return None
-    
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE professionals SET credits = credits + %s WHERE email = %s RETURNING credits;",
-            (amount, email)
-        )
-        new_credits = cursor.fetchone()
-        conn.commit()
-        return new_credits[0] if new_credits else None
-        
-    except Exception as e:
-        conn.rollback()
-        print(f"ERROR DB al actualizar créditos para {email}: {e}")
-        return None
-    finally:
-        if conn: conn.close()
+    """Suma o resta créditos a un profesional. Retorna el nuevo total."""
+    query = sql.SQL("UPDATE profiles SET credits = credits + %s WHERE email = %s AND user_type = 'professional' RETURNING credits;")
+    result = execute_query(query, fetchone=True, params=[amount, email])
+    if result:
+        return result[0]
+    return None
 
-def update_refutation_score(email: str, points: int) -> Optional[int]:
-    """Añade puntos al score_refutation (ranking) del profesional. Retorna el nuevo score."""
-    conn = get_db_connection()
-    if conn is None: 
-        return None
-    
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE professionals SET score_refutation = score_refutation + %s WHERE email = %s RETURNING score_refutation;",
-            (points, email)
-        )
-        new_score = cursor.fetchone()
-        conn.commit()
-        return new_score[0] if new_score else None
-        
-    except Exception as e:
-        conn.rollback()
-        print(f"ERROR DB al actualizar score de refutación para {email}: {e}")
-        return None
-    finally:
-        if conn: conn.close()
+def update_refutation_score(email: str, score_increment: int) -> bool:
+    """Actualiza el ranking (ranking_score) de un profesional."""
+    query = sql.SQL("UPDATE profiles SET ranking_score = ranking_score + %s WHERE email = %s;")
+    return execute_query(query, params=[score_increment, email])
 
+
+# --- Funciones de Casos y Debates ---
+
+def insert_case(case_id: str, volunteer_email: str, ai_report: Dict[str, Any]) -> bool:
+    """Inserta un nuevo caso clínico con su reporte de IA."""
+    query = sql.SQL("INSERT INTO cases (case_id, volunteer_email, ai_report) VALUES (%s, %s, %s);")
+    return execute_query(query, params=[case_id, volunteer_email, Json(ai_report)])
+
+def get_available_cases() -> Optional[List[Dict[str, Any]]]:
+    """Obtiene todos los casos que están disponibles para debate."""
+    query = sql.SQL("SELECT case_id, ai_report, created_at FROM cases WHERE is_available = TRUE;")
+    results = execute_query(query, fetchall=True)
+    if results:
+        keys = ['case_id', 'ai_report', 'created_at']
+        return [dict(zip(keys, row)) for row in results]
+    return []
 
 def start_active_debate(case_id: str, professional_email: str) -> Optional[int]:
     """
-    Inicia un debate activo. Marca el caso como no disponible y crea el registro de debate.
-    Retorna el ID del nuevo debate (debate_id) o None si falla.
+    Inicia un debate: marca el caso como no disponible e inserta el registro.
+    Retorna el ID del nuevo debate o None si el caso no estaba disponible.
     """
-    conn = get_db_connection()
-    if conn is None: 
+    db_conn = get_db_connection()
+    if not db_conn:
         return None
-    
+
     try:
-        cursor = conn.cursor()
-        
-        # 1. Marcar el caso como no disponible (is_available = FALSE)
-        cursor.execute(
-            "UPDATE cases SET is_available = FALSE WHERE case_id = %s AND is_available = TRUE;",
-            (case_id,)
-        )
-        
-        # Si no se actualizó ninguna fila, significa que el caso ya no estaba disponible o no existe.
-        if cursor.rowcount == 0:
-            conn.rollback()
-            print(f"ADVERTENCIA: No se pudo tomar el caso {case_id}. Puede que ya no esté disponible.")
-            return None
+        with db_conn.cursor() as cur:
+            # 1. Intentar marcar el caso como no disponible (transacción implícita)
+            update_query = sql.SQL("UPDATE cases SET is_available = FALSE WHERE case_id = %s AND is_available = TRUE RETURNING id;")
+            cur.execute(update_query, [case_id])
             
-        # 2. Insertar el nuevo debate activo
-        cursor.execute("""
-            INSERT INTO active_debates (case_id, professional_email)
-            VALUES (%s, %s)
-            RETURNING debate_id;
-        """, (case_id, professional_email))
-        
-        debate_id = cursor.fetchone()[0]
-        conn.commit()
-        return debate_id
-        
-    except psycopg2.IntegrityError as e:
-        # Esto captura la violación de UNIQUE (case_id, professional_email) o FK.
-        conn.rollback()
-        print(f"ERROR: El debate ya existe o datos inválidos (FK violation): {e}")
-        return None
+            if not cur.fetchone():
+                db_conn.rollback()
+                return None # El caso ya fue tomado o no existe
+            
+            # 2. Insertar el registro de debate
+            insert_query = sql.SQL("INSERT INTO active_debates (case_id, professional_email) VALUES (%s, %s) RETURNING id;")
+            cur.execute(insert_query, [case_id, professional_email])
+            debate_id = cur.fetchone()[0]
+            
+            db_conn.commit()
+            return debate_id
     except Exception as e:
-        conn.rollback()
-        print(f"ERROR DB al iniciar debate para caso {case_id}: {e}")
+        db_conn.rollback()
+        print(f"ERROR al iniciar debate: {e}")
         return None
-    finally:
-        if conn: conn.close()
 
 def complete_active_debate(debate_id: int) -> bool:
+    """Marca un debate como completado."""
+    query = sql.SQL("UPDATE active_debates SET is_completed = TRUE WHERE id = %s;")
+    return execute_query(query, params=[debate_id])
+
+# --- Funciones de Monitoreo y CRON Job ---
+
+def get_expiring_debates(hours_threshold: int) -> List[Dict[str, Any]]:
     """
-    Marca un debate activo como completado (is_completed = TRUE).
-    Retorna True si la actualización fue exitosa, False en caso contrario.
+    Obtiene debates activos (no completados) que están próximos a caducar.
+    Se usa para enviar alertas.
     """
-    conn = get_db_connection()
-    if conn is None: 
-        return False
+    delta = timedelta(hours=hours_threshold)
+    expiration_time = datetime.now() - delta
     
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE active_debates SET is_completed = TRUE WHERE debate_id = %s AND is_completed = FALSE;",
-            (debate_id,)
-        )
-        conn.commit()
-        return cursor.rowcount > 0
-        
-    except Exception as e:
-        conn.rollback()
-        print(f"ERROR DB al completar debate {debate_id}: {e}")
-        return False
-    finally:
-        if conn: conn.close()
-
-
-# --- Funciones de Lectura (GET) ---
-
-def get_user_type(email: str) -> Optional[str]:
-    """
-    Verifica si un usuario ha firmado el waiver y retorna su tipo ('volunteer' o 'professional').
-    Retorna None si no existe.
-    """
-    conn = get_db_connection()
-    if conn is None:
-        return None
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT user_type FROM waivers WHERE email = %s;",
-            (email,)
-        )
-        result = cursor.fetchone()
-        return result[0] if result else None
+    query = sql.SQL("""
+        SELECT ad.id, ad.professional_email, c.case_id, ad.start_time
+        FROM active_debates ad
+        JOIN cases c ON ad.case_id = c.case_id
+        WHERE ad.is_completed = FALSE 
+          AND ad.start_time < %s
+          AND ad.start_time > %s; -- Solo debates que caducarán en la próxima hora (ej: 22h y no 24h)
+    """)
     
-    except Exception as e:
-        print(f"ERROR al obtener tipo de usuario {email}: {e}")
-        return None
-    finally:
-        if conn: conn.close()
+    # Buscamos debates que iniciaron hace más de X horas, pero menos de X+1 horas (ej: entre 22h y 23h)
+    start_lookback = datetime.now() - timedelta(hours=hours_threshold + 1)
 
-def get_professional_profile(email: str) -> Optional[Dict[str, Any]]:
-    """
-    Obtiene todos los datos del perfil de un profesional, incluyendo créditos y ranking.
-    """
-    conn = get_db_connection()
-    if conn is None:
-        return None
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT email, name, specialty, credits, score_refutation FROM professionals WHERE email = %s;",
-            (email,)
-        )
-        result = cursor.fetchone()
-
-        if result:
-            # Obtener los nombres de las columnas para crear un diccionario
-            column_names = [desc[0] for desc in cursor.description]
-            return dict(zip(column_names, result))
-        else:
-            return None
+    results = execute_query(query, fetchall=True, params=[expiration_time, start_lookback])
     
-    except Exception as e:
-        print(f"ERROR al obtener perfil de profesional {email}: {e}")
-        return None
-    finally:
-        if conn: conn.close()
+    if results:
+        keys = ['debate_id', 'professional_email', 'case_id', 'start_time']
+        return [dict(zip(keys, row)) for row in results]
+    return []
 
 
-def get_available_cases() -> Optional[List[Dict[str, Any]]]:
+def release_expired_debates(hours_threshold: int) -> int:
     """
-    Obtiene una lista de todos los casos clínicos que están marcados como disponibles (is_available = TRUE).
+    Libera los casos y cierra los debates que han excedido el tiempo límite.
+    Retorna el número de casos liberados.
     """
-    conn = get_db_connection()
-    if conn is None:
-        return None
+    delta = timedelta(hours=hours_threshold)
+    expiration_time = datetime.now() - delta
+    
+    db_conn = get_db_connection()
+    if not db_conn:
+        return 0
 
     try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT case_id, volunteer_email, ai_report, creation_timestamp 
-            FROM cases 
-            WHERE is_available = TRUE 
-            ORDER BY creation_timestamp DESC;
-        """)
-        
-        # Obtener los nombres de las columnas para crear un diccionario por fila
-        column_names = [desc[0] for desc in cursor.description]
-        cases_list = []
-        
-        for row in cursor.fetchall():
-            case_data = dict(zip(column_names, row))
-            # El campo ai_report ya es un diccionario gracias a la gestión de JSONB de psycopg2
-            cases_list.append(case_data)
+        with db_conn.cursor() as cur:
+            # 1. Seleccionar los debates expirados (más de X horas y no completados)
+            select_expired_query = sql.SQL("""
+                SELECT ad.case_id
+                FROM active_debates ad
+                WHERE ad.is_completed = FALSE 
+                AND ad.start_time < %s;
+            """)
+            cur.execute(select_expired_query, [expiration_time])
+            expired_cases = [row[0] for row in cur.fetchall()]
             
-        return cases_list
-    
-    except Exception as e:
-        print(f"ERROR al obtener casos disponibles: {e}")
-        return None
-    finally:
-        if conn: conn.close()
-
-
-def get_expiring_debates(hours_threshold: int = 22) -> Optional[List[Dict[str, Any]]]:
-    """
-    Obtiene debates activos que están a punto de caducar.
-    Por defecto, busca debates que tienen más de 22 horas activos (dejando 2 horas para la alerta).
-    Retorna una lista de diccionarios con la información relevante.
-    """
-    conn = get_db_connection()
-    if conn is None:
-        return None
-
-    try:
-        cursor = conn.cursor()
-        
-        # Consulta para encontrar debates que no están completados
-        # y cuyo tiempo de inicio es anterior a (ahora menos el umbral de horas).
-        cursor.execute(f"""
-            SELECT 
-                debate_id, professional_email, case_id, start_time
-            FROM active_debates 
-            WHERE is_completed = FALSE 
-            AND start_time < (CURRENT_TIMESTAMP - INTERVAL '{hours_threshold} hour')
-            ORDER BY start_time ASC;
-        """)
-        
-        column_names = [desc[0] for desc in cursor.description]
-        debates_list = [dict(zip(column_names, row)) for row in cursor.fetchall()]
+            if not expired_cases:
+                return 0
+                
+            # 2. Liberar los casos en la tabla 'cases'
+            release_cases_query = sql.SQL("UPDATE cases SET is_available = TRUE WHERE case_id = ANY(%s);")
+            cur.execute(release_cases_query, [expired_cases])
+            cases_released_count = cur.rowcount
             
-        return debates_list
-    
+            # 3. Marcar los debates como completados/fallidos en 'active_debates'
+            complete_debates_query = sql.SQL("UPDATE active_debates SET is_completed = TRUE WHERE case_id = ANY(%s) AND is_completed = FALSE;")
+            cur.execute(complete_debates_query, [expired_cases])
+
+            db_conn.commit()
+            return cases_released_count
+            
     except Exception as e:
-        print(f"ERROR al obtener debates a punto de caducar (>{hours_threshold}h): {e}")
-        return None
-    finally:
-        if conn: conn.close()
+        db_conn.rollback()
+        print(f"ERROR al liberar debates expirados: {e}")
+        return 0
