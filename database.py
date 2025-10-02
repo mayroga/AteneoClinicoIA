@@ -4,8 +4,13 @@ from psycopg2.extras import Json
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
-# CORRECCIÓN: Se importa desde 'config'
+# Se importa desde 'config'
 from config import settings 
+
+# ----------------------------------------------------
+# FIX: Inicializar 'conn' a None antes de la conexión
+# ----------------------------------------------------
+conn = None
 
 # Configuración y conexión de la base de datos
 try:
@@ -17,12 +22,18 @@ except Exception as e:
     conn = None
 
 def get_db_connection():
-    """Retorna la conexión de DB si está activa."""
+    """
+    Retorna la conexión de DB si está activa.
+    FIX: 'global conn' se declara primero para evitar SyntaxError en Python 3.13.
+    """
+    global conn # <--- FIX APLICADO AQUÍ: Debe ser la primera declaración 
+                #      si se va a reasignar condicionalmente.
+                
     if conn and not conn.closed:
         return conn
+    
     # Intenta reconectar si la conexión se perdió
     try:
-        global conn
         conn = psycopg2.connect(settings.DATABASE_URL)
         conn.autocommit = True
         return conn
@@ -191,6 +202,20 @@ def complete_active_debate(debate_id: int) -> bool:
     """Marca un debate como completado."""
     query = sql.SQL("UPDATE active_debates SET is_completed = TRUE WHERE id = %s;")
     return execute_query(query, params=[debate_id])
+
+def get_ai_report_by_debate_id(debate_id: int) -> Optional[Dict[str, Any]]:
+    """Obtiene el ai_report del caso asociado a un debate activo a partir de su ID."""
+    query = sql.SQL("""
+        SELECT c.ai_report
+        FROM active_debates ad
+        JOIN cases c ON ad.case_id = c.case_id
+        WHERE ad.id = %s;
+    """)
+    result = execute_query(query, fetchone=True, params=[debate_id])
+    # El resultado de JSONB se obtiene como un objeto/dict de Python (result[0] es el campo ai_report)
+    if result and result[0]:
+        return result[0]
+    return None
 
 # --- Funciones de Monitoreo y CRON Job ---
 
