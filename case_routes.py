@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, status, Body
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Dict, Any
 import uuid
-import json # <-- Importación requerida para json.loads()
+import json 
 
 # Importaciones para la API de Gemini
 from google import genai
@@ -16,10 +16,10 @@ from database import (
     get_professional_profile, 
     update_professional_credits, 
     start_active_debate, 
-    update_refutation_score,
     complete_active_debate,
-    get_ai_report_by_debate_id # <-- NUEVA FUNCIÓN IMPORTADA
+    get_ai_report_by_debate_id
 )
+import professional_service # Necesario para la lógica de ranking
 from auth_routes import AuthResult # Usamos la clase de resultado de autenticación
 
 # Router para manejar las rutas de casos
@@ -87,9 +87,8 @@ def generate_ai_report(case_details: str) -> Dict[str, Any]:
         response = gemini_client.models.generate_content(
             model='gemini-2.5-flash-preview-05-20',
             contents=prompt,
-            system_instruction={
-                "parts": [{"text": system_prompt}]
-            },
+            # CORRECCIÓN: Pasar system_instruction como string al generate_content
+            system_instruction=system_prompt, 
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema={
@@ -134,7 +133,8 @@ def score_refutation(ai_report: Dict[str, Any], refutation_text: str) -> int:
         response = gemini_client.models.generate_content(
             model='gemini-2.5-flash-preview-05-20',
             contents=full_prompt,
-            system_instruction={"parts": [{"text": scoring_prompt}]},
+            # CORRECCIÓN: Pasar system_instruction como string al generate_content
+            system_instruction=scoring_prompt, 
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema={
@@ -268,7 +268,9 @@ def submit_refutation(data: RefutationRequest, auth: AuthResult = Depends(is_pro
     
     # 3. Actualizar Ranking si la puntuación es alta (Ej: Umbral de éxito = 80 puntos)
     if score >= 80:
-        update_refutation_score(auth.email, 1) # Añadir 1 punto al ranking por refutación exitosa
+        # CORRECCIÓN: Llamar a una función de servicio para actualizar el ranking, no a la DB directamente.
+        # Asumimos que profesional_service.update_refutation_ranking existe.
+        professional_service.update_refutation_ranking(auth.email, 1) 
         message = f"¡Felicidades! Tu refutación (Puntuación: {score}) ha sido exitosa y has ganado 1 punto de ranking."
     else:
         message = f"Refutación completada (Puntuación: {score}). No alcanzó el umbral para ganar ranking esta vez."
