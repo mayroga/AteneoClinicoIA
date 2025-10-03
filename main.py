@@ -1,3 +1,4 @@
+```python
 from fastapi import FastAPI, Depends, HTTPException, status
 from database import create_tables
 from payment_routes import router as payment_router
@@ -9,7 +10,6 @@ from notification_service import run_expiration_alert_job, run_cleanup_job
 import time 
 
 # --- Inicialización de la Aplicación ---
-# Creamos la instancia de FastAPI
 app = FastAPI(
     title="Plataforma de Debate Clínico",
     description="Backend para gestionar casos, profesionales, y monetización (v. Final).",
@@ -24,7 +24,8 @@ async def startup_event():
     Asegura que las tablas de la DB existan.
     """
     print("INFO: Iniciando la aplicación. Verificando tablas de la base de datos...")
-    await create_tables()
+    await create_tables()  # <-- CORREGIDO (async)
+
 # --- Conexión de Routers ---
 # 1. Autenticación, Registro y Perfiles
 app.include_router(auth_router)
@@ -64,3 +65,4 @@ async def run_cron_jobs():
     }
 
 # --- Configuración de CORS, Middlewares, etc. (irían aquí) ---
+```
