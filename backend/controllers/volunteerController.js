@@ -1,57 +1,89 @@
-const { v4: uuidv4 } = require('uuid');
-const db = require('../utils/database');
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-const stripe = require('stripe')(STRIPE_SECRET_KEY);
+import Stripe from 'stripe';
+import { v4 as uuidv4 } from 'uuid';
+import { getVolunteerByEmail, createVolunteer, updateCredits, getCaseForVolunteer, submitDebateResult } from '../models/volunteerModel.js';
 
-// Aceptar waiver
-async function acceptWaiver(email, user_type) {
-    await db.insertWaiver({ email, user_type, accepted_at: new Date() });
-    return { email, user_type };
-}
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Procesar pago del voluntario
-async function processVolunteerPayment(email, amount) {
-    const paymentIntent = await stripe.paymentIntents.create({
-        amount: amount * 100, // en centavos
-        currency: 'usd',
-        receipt_email: email,
-        metadata: { user_email: email, type: 'volunteer' }
-    });
-    return paymentIntent.client_secret;
-}
+// Registrar voluntario
+export const registerVolunteer = async (req, res) => {
+    try {
+        const { email, name } = req.body;
+        if (!email || !name) {
+            return res.status(400).json({ detail: 'Campos incompletos' });
+        }
 
-// Subir caso de voluntario
-async function submitCase(email, historyText, imageFile) {
-    const caseId = uuidv4();
-    const caseRecord = {
-        case_id: caseId,
-        volunteer_email: email,
-        chief_complaint: historyText.split('\n')[0] || '',
-        history_summary: historyText,
-        image_url: `/uploads/${imageFile.filename}`,
-        ai_hypothesis: 'Pendiente generación IA',
-        differential_diagnoses: [],
-        diagnostic_plan: '',
-        created_at: new Date()
-    };
-    await db.insertVolunteerCase(caseRecord);
+        let volunteer = await getVolunteerByEmail(email);
+        if (!volunteer) {
+            volunteer = await createVolunteer({ email, name });
+        }
 
-    // Generar mensaje viral para redes
-    const socialMessage = `Un nuevo caso clínico ha sido subido por un voluntario. Caso ID: ${caseId}. Participa en el debate profesional.`;
+        res.json({ profile: volunteer });
+    } catch (error) {
+        console.error('Error registerVolunteer:', error);
+        res.status(500).json({ detail: 'Error interno del servidor' });
+    }
+};
 
-    return { case_id: caseId, social_message: socialMessage, warning: 'Recuerda que la IA es para fines educativos y de debate clínico.' };
-}
+// Comprar créditos reales con Stripe ($40–$50)
+export const purchaseCredits = async (req, res) => {
+    try {
+        const { email, credits, price } = req.body;
+        const volunteer = await getVolunteerByEmail(email);
+        if (!volunteer) return res.status(404).json({ detail: 'Voluntario no encontrado' });
 
-// Obtener reporte del voluntario
-async function getVolunteerReport(email) {
-    const report = await db.getLatestVolunteerCaseByEmail(email);
-    if (!report) throw new Error('No se encontró reporte');
-    return report;
-}
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            line_items: [
+                {
+                    price_data: {
+                        currency: 'usd',
+                        product_data: { name: `${credits} Créditos para Voluntario IA` },
+                        unit_amount: price * 100,
+                    },
+                    quantity: 1,
+                },
+            ],
+            mode: 'payment',
+            success_url: `${process.env.FRONTEND_URL}/volunteer_flow?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${process.env.FRONTEND_URL}/volunteer_flow`,
+            metadata: { email, credits }
+        });
 
-module.exports = {
-    acceptWaiver,
-    processVolunteerPayment,
-    submitCase,
-    getVolunteerReport
+        res.json({ url: session.url });
+    } catch (error) {
+        console.error('Error purchaseCredits:', error);
+        res.status(500).json({ detail: 'Error al crear sesión de pago' });
+    }
+};
+
+// Obtener un caso para debate
+export const getCase = async (req, res) => {
+    try {
+        const email = req.headers.email;
+        const volunteer = await getVolunteerByEmail(email);
+        if (!volunteer) return res.status(404).json({ detail: 'Voluntario no encontrado' });
+        if (volunteer.credits < 1) return res.status(403).json({ detail: 'No tienes créditos suficientes' });
+
+        const caseData = await getCaseForVolunteer(email);
+        await updateCredits(email, -1); // descontar crédito
+        res.json({ case: caseData });
+    } catch (error) {
+        console.error('Error getCase:', error);
+        res.status(500).json({ detail: 'Error al obtener caso' });
+    }
+};
+
+// Enviar refutación de un caso
+export const submitDebate = async (req, res) => {
+    try {
+        const email = req.headers.email;
+        const { case_id, volunteer_diagnosis, outcome } = req.body;
+
+        const result = await submitDebateResult({ email, case_id, volunteer_diagnosis, outcome });
+
+        res.json({ new_score: result.new_score, viral_message: result.viral_message });
+    } catch (error) {
+        console.error('Error submitDebate:', error);
+        res.status(500).json({ detail: 'Error al enviar debate' });
+    }
 };
