@@ -24,8 +24,7 @@ async def startup_event():
     Asegura que las tablas de la DB existan.
     """
     print("INFO: Iniciando la aplicación. Verificando tablas de la base de datos...")
-    create_tables()
-
+    await create_tables()
 # --- Conexión de Routers ---
 # 1. Autenticación, Registro y Perfiles
 app.include_router(auth_router)
