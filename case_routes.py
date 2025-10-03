@@ -16,10 +16,10 @@ from database import (
     get_professional_profile, 
     update_professional_credits, 
     start_active_debate, 
-    complete_active_debate,
+    complete_active_debate, # <--- FUNCIÓN CORREGIDA
     get_ai_report_by_debate_id
 )
-import professional_service # Necesario para la lógica de ranking
+import professional_service # Importamos el módulo completo para el ranking
 from auth_routes import AuthResult # Usamos la clase de resultado de autenticación
 
 # Router para manejar las rutas de casos
@@ -87,8 +87,7 @@ def generate_ai_report(case_details: str) -> Dict[str, Any]:
         response = gemini_client.models.generate_content(
             model='gemini-2.5-flash-preview-05-20',
             contents=prompt,
-            # CORRECCIÓN: Pasar system_instruction como string al generate_content
-            system_instruction=system_prompt, 
+            system_instruction=system_prompt, # Formato corregido para system_instruction
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema={
@@ -133,8 +132,7 @@ def score_refutation(ai_report: Dict[str, Any], refutation_text: str) -> int:
         response = gemini_client.models.generate_content(
             model='gemini-2.5-flash-preview-05-20',
             contents=full_prompt,
-            # CORRECCIÓN: Pasar system_instruction como string al generate_content
-            system_instruction=scoring_prompt, 
+            system_instruction=scoring_prompt, # Formato corregido para system_instruction
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema={
@@ -200,7 +198,6 @@ def list_available_cases(auth: AuthResult = Depends(is_professional)):
     if cases is None:
         raise HTTPException(status_code=500, detail="Fallo al consultar la base de datos.")
     
-    # Ocultar o simplificar la información sensible antes de enviar (no necesario con el JSON de la DB)
     return cases
 
 
@@ -249,7 +246,7 @@ def submit_refutation(data: RefutationRequest, auth: AuthResult = Depends(is_pro
     Ruta para que el Profesional envíe su refutación final.
     1. Obtiene el reporte de IA original.
     2. Evalúa la refutación con la IA.
-    3. Si pasa el umbral, actualiza el ranking.
+    3. Si pasa el umbral, actualiza el ranking (usando el servicio).
     4. Cierra el debate.
     """
     # 1. Obtener el reporte de IA real a partir del ID del debate
@@ -266,10 +263,9 @@ def submit_refutation(data: RefutationRequest, auth: AuthResult = Depends(is_pro
     
     message = "Refutación enviada. Recibirás tu puntuación y retroalimentación pronto."
     
-    # 3. Actualizar Ranking si la puntuación es alta (Ej: Umbral de éxito = 80 puntos)
+    # 3. Actualizar Ranking si la puntuación es alta (Umbral de éxito = 80 puntos)
     if score >= 80:
-        # CORRECCIÓN: Llamar a una función de servicio para actualizar el ranking, no a la DB directamente.
-        # Asumimos que profesional_service.update_refutation_ranking existe.
+        # Llama a la función del módulo de servicio (asumiendo que profesional_service.py la tiene)
         professional_service.update_refutation_ranking(auth.email, 1) 
         message = f"¡Felicidades! Tu refutación (Puntuación: {score}) ha sido exitosa y has ganado 1 punto de ranking."
     else:
