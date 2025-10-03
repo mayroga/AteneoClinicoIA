@@ -1,19 +1,13 @@
 import express from 'express';
-import { registerVolunteer, purchaseCredits, getCase, submitDebate } from '../controllers/volunteerController.js';
-import { registerProfessional, purchaseProfessionalCredits, getProfessionalCase, submitProfessionalDebate } from '../controllers/professionalController.js';
+import { createProfessionalPayment } from '../controllers/professionalController.js';
+import { createVolunteerPayment } from '../controllers/volunteerController.js';
 
 const router = express.Router();
 
-// Rutas para Voluntarios
-router.post('/volunteer/register', registerVolunteer);
-router.post('/volunteer/purchase', purchaseCredits);
-router.get('/volunteer/case', getCase);
-router.post('/volunteer/debate', submitDebate);
+// Endpoint para pago de profesionales de salud
+router.post('/payment/professional', createProfessionalPayment);
 
-// Rutas para Profesionales de Salud
-router.post('/professional/register', registerProfessional);
-router.post('/professional/purchase', purchaseProfessionalCredits);
-router.get('/professional/case', getProfessionalCase);
-router.post('/professional/debate', submitProfessionalDebate);
+// Endpoint para pago de voluntarios
+router.post('/payment/volunteer', createVolunteerPayment);
 
 export default router;
