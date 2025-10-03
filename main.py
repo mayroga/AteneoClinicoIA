@@ -61,4 +61,4 @@ async def run_cron_jobs():
         "cases_released": cases_released,
         "execution_time_seconds": round(end_time - start_time, 2)
     }
-```
+
