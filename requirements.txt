@@ -8,3 +8,4 @@ sendgrid  # <-- ¡NUEVA LIBRERÍA DE ENVÍO DE CORREOS!
 stripe
 pydantic
 email-validator
+asyncpg>=0.27.0
