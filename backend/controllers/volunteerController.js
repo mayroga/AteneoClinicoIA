@@ -1,89 +1,61 @@
 import Stripe from 'stripe';
 import { v4 as uuidv4 } from 'uuid';
-import { getVolunteerByEmail, createVolunteer, updateCredits, getCaseForVolunteer, submitDebateResult } from '../models/volunteerModel.js';
+import { DATABASE_URL } from '../config.js'; // Asumiendo que tienes un config que obtiene variables de Render
+import { sendEmail } from '../utils/emailService.js'; // Función para enviar correos
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Registrar voluntario
-export const registerVolunteer = async (req, res) => {
+// Crear sesión de pago para voluntarios ($40 a $50)
+export const createVolunteerPayment = async (req, res) => {
     try {
-        const { email, name } = req.body;
-        if (!email || !name) {
-            return res.status(400).json({ detail: 'Campos incompletos' });
+        const { amount, email, name } = req.body;
+
+        if (!amount || !email || !name) {
+            return res.status(400).json({ message: 'Faltan datos obligatorios' });
         }
 
-        let volunteer = await getVolunteerByEmail(email);
-        if (!volunteer) {
-            volunteer = await createVolunteer({ email, name });
-        }
-
-        res.json({ profile: volunteer });
-    } catch (error) {
-        console.error('Error registerVolunteer:', error);
-        res.status(500).json({ detail: 'Error interno del servidor' });
-    }
-};
-
-// Comprar créditos reales con Stripe ($40–$50)
-export const purchaseCredits = async (req, res) => {
-    try {
-        const { email, credits, price } = req.body;
-        const volunteer = await getVolunteerByEmail(email);
-        if (!volunteer) return res.status(404).json({ detail: 'Voluntario no encontrado' });
-
-        const session = await stripe.checkout.sessions.create({
-            payment_method_types: ['card'],
-            line_items: [
-                {
-                    price_data: {
-                        currency: 'usd',
-                        product_data: { name: `${credits} Créditos para Voluntario IA` },
-                        unit_amount: price * 100,
-                    },
-                    quantity: 1,
-                },
-            ],
-            mode: 'payment',
-            success_url: `${process.env.FRONTEND_URL}/volunteer_flow?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${process.env.FRONTEND_URL}/volunteer_flow`,
-            metadata: { email, credits }
+        const paymentIntent = await stripe.paymentIntents.create({
+            amount: amount * 100, // Stripe maneja centavos
+            currency: 'usd',
+            receipt_email: email,
+            metadata: { name, type: 'volunteer' }
         });
 
-        res.json({ url: session.url });
+        // Guardar en base de datos (simulación real, adaptarlo a tu DB)
+        const volunteerRecord = {
+            id: uuidv4(),
+            name,
+            email,
+            amount,
+            paymentIntentId: paymentIntent.id,
+            status: 'pending',
+            createdAt: new Date()
+        };
+        // Aquí insertas volunteerRecord en tu DB real usando DATABASE_URL
+
+        // Enviar correo de confirmación
+        await sendEmail({
+            to: email,
+            subject: 'Confirmación de pago voluntario',
+            text: `Hola ${name}, tu pago de $${amount} ha sido iniciado. ID: ${paymentIntent.id}`
+        });
+
+        res.json({
+            clientSecret: paymentIntent.client_secret,
+            message: 'Pago iniciado correctamente'
+        });
     } catch (error) {
-        console.error('Error purchaseCredits:', error);
-        res.status(500).json({ detail: 'Error al crear sesión de pago' });
+        console.error('Error en createVolunteerPayment:', error);
+        res.status(500).json({ message: 'Error al procesar el pago voluntario' });
     }
 };
 
-// Obtener un caso para debate
-export const getCase = async (req, res) => {
+// Confirmar pago webhook (opcional si quieres manejar desde Stripe)
+export const confirmVolunteerPayment = async (paymentIntentId) => {
     try {
-        const email = req.headers.email;
-        const volunteer = await getVolunteerByEmail(email);
-        if (!volunteer) return res.status(404).json({ detail: 'Voluntario no encontrado' });
-        if (volunteer.credits < 1) return res.status(403).json({ detail: 'No tienes créditos suficientes' });
-
-        const caseData = await getCaseForVolunteer(email);
-        await updateCredits(email, -1); // descontar crédito
-        res.json({ case: caseData });
+        // Actualizar estado en DB a 'completed' usando paymentIntentId
+        // Ejemplo: UPDATE volunteers SET status='completed' WHERE paymentIntentId=...
     } catch (error) {
-        console.error('Error getCase:', error);
-        res.status(500).json({ detail: 'Error al obtener caso' });
-    }
-};
-
-// Enviar refutación de un caso
-export const submitDebate = async (req, res) => {
-    try {
-        const email = req.headers.email;
-        const { case_id, volunteer_diagnosis, outcome } = req.body;
-
-        const result = await submitDebateResult({ email, case_id, volunteer_diagnosis, outcome });
-
-        res.json({ new_score: result.new_score, viral_message: result.viral_message });
-    } catch (error) {
-        console.error('Error submitDebate:', error);
-        res.status(500).json({ detail: 'Error al enviar debate' });
+        console.error('Error al confirmar pago voluntario:', error);
     }
 };
