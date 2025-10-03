@@ -1,4 +1,3 @@
-```python
 from fastapi import FastAPI, Depends, HTTPException, status
 from database import create_tables
 from payment_routes import router as payment_router
