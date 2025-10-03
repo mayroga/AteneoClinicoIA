@@ -1,64 +1,89 @@
-const { v4: uuidv4 } = require('uuid');
-const db = require('../utils/database');
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-const stripe = require('stripe')(STRIPE_SECRET_KEY);
-const ADMIN_BYPASS_KEY = process.env.ADMIN_BYPASS_KEY;
+import Stripe from 'stripe';
+import { v4 as uuidv4 } from 'uuid';
+import { getProfessionalByEmail, createProfessional, updateCredits, getCaseForProfessional, submitDebateResult } from '../models/professionalModel.js';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // Registrar profesional
-async function registerProfessional(email, name, specialty) {
-    let existing = await db.getProfessionalByEmail(email);
-    if (existing) throw new Error('Profesional ya registrado');
+export const registerProfessional = async (req, res) => {
+    try {
+        const { email, name, specialty } = req.body;
+        if (!email || !name || !specialty) {
+            return res.status(400).json({ detail: 'Campos incompletos' });
+        }
 
-    const profile = {
-        email,
-        name,
-        specialty,
-        credits: 1,
-        score_refutation: 0
-    };
-    await db.insertProfessional(profile);
-    return profile;
-}
+        let professional = await getProfessionalByEmail(email);
+        if (!professional) {
+            professional = await createProfessional({ email, name, specialty });
+        }
 
-// Obtener perfil
-async function getProfessionalProfile(email) {
-    const profile = await db.getProfessionalByEmail(email);
-    if (!profile) throw new Error('Perfil no encontrado');
-    return profile;
-}
+        res.json({ profile: professional });
+    } catch (error) {
+        console.error('Error registerProfessional:', error);
+        res.status(500).json({ detail: 'Error interno del servidor' });
+    }
+};
 
-// Obtener nuevo caso
-async function getCase(email) {
-    const profile = await db.getProfessionalByEmail(email);
-    if (!profile) throw new Error('Perfil no encontrado');
-    if (profile.credits < 1) throw new Error('No tienes créditos suficientes');
+// Comprar créditos reales con Stripe
+export const purchaseCredits = async (req, res) => {
+    try {
+        const { email, credits, price } = req.body;
+        const professional = await getProfessionalByEmail(email);
+        if (!professional) return res.status(404).json({ detail: 'Profesional no encontrado' });
 
-    const caseItem = await db.getRandomVolunteerCase();
-    await db.decrementProfessionalCredit(email);
-    return caseItem;
-}
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            line_items: [
+                {
+                    price_data: {
+                        currency: 'usd',
+                        product_data: { name: `${credits} Créditos para Ateneo Clínico IA` },
+                        unit_amount: price * 100,
+                    },
+                    quantity: 1,
+                },
+            ],
+            mode: 'payment',
+            success_url: `${process.env.FRONTEND_URL}/professional_flow?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${process.env.FRONTEND_URL}/professional_flow`,
+            metadata: { email, credits }
+        });
 
-// Enviar debate profesional
-async function submitDebate(email, case_id, professional_diagnosis, outcome) {
-    const profile = await db.getProfessionalByEmail(email);
-    if (!profile) throw new Error('Perfil no encontrado');
+        res.json({ url: session.url });
+    } catch (error) {
+        console.error('Error purchaseCredits:', error);
+        res.status(500).json({ detail: 'Error al crear sesión de pago' });
+    }
+};
 
-    let scoreChange = 0;
-    if (outcome === 'victory') scoreChange = 10;
-    else if (outcome === 'defeat') scoreChange = -5;
+// Obtener un caso para debate
+export const getCase = async (req, res) => {
+    try {
+        const email = req.headers.email;
+        const professional = await getProfessionalByEmail(email);
+        if (!professional) return res.status(404).json({ detail: 'Profesional no encontrado' });
+        if (professional.credits < 1) return res.status(403).json({ detail: 'No tienes créditos suficientes' });
 
-    const newScore = profile.score_refutation + scoreChange;
-    await db.updateProfessionalScore(email, newScore);
+        const caseData = await getCaseForProfessional(email);
+        await updateCredits(email, -1); // descontar crédito
+        res.json({ case: caseData });
+    } catch (error) {
+        console.error('Error getCase:', error);
+        res.status(500).json({ detail: 'Error al obtener caso' });
+    }
+};
 
-    const viralMessage = `El Dr/a ${profile.name} participó en el debate del Caso ID ${case_id} y obtuvo ${scoreChange >= 0 ? '+' : ''}${scoreChange} puntos en su Refutation Score. ¡Únete al debate!`;
+// Enviar refutación de un caso
+export const submitDebate = async (req, res) => {
+    try {
+        const email = req.headers.email;
+        const { case_id, professional_diagnosis, outcome } = req.body;
 
-    return { new_score: newScore, viral_message: viralMessage };
-}
+        const result = await submitDebateResult({ email, case_id, professional_diagnosis, outcome });
 
-module.exports = {
-    registerProfessional,
-    getProfessionalProfile,
-    getCase,
-    submitDebate,
-    verifyAdminBypass: (key) => key === ADMIN_BYPASS_KEY
+        res.json({ new_score: result.new_score, viral_message: result.viral_message });
+    } catch (error) {
+        console.error('Error submitDebate:', error);
+        res.status(500).json({ detail: 'Error al enviar debate' });
+    }
 };
