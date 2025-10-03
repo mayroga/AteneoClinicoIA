@@ -1,100 +1,135 @@
 from typing import Dict, Any, List, Optional
+from config import settings
+import asyncio # Solo para simular retrasos en la DB (eliminar en prod)
+import json # Para manejar datos JSON/JSONB en PostgreSQL
 
-# --- Base de datos en memoria (SOLO PARA PRUEBAS INICIALES) ---
-# En producción, esto debe ser reemplazado por PostgreSQL (usando asyncpg o SQLAlchemy)
-db_cases: Dict[str, Dict[str, Any]] = {}
-db_profiles: Dict[str, Dict[str, Any]] = {
-    # Perfiles de ejemplo para pruebas
-    "pro1@test.com": {"user_type": "professional", "credits": 5, "ranking_score": 10},
-    "vol1@test.com": {"user_type": "volunteer", "credits": 0, "ranking_score": 0},
-}
-db_debates: Dict[int, Dict[str, Any]] = {}
-debate_id_counter = 1
+# --- Configuración de la Conexión (PENDIENTE DE IMPLEMENTACIÓN) ---
+# En un entorno real, usarías un pool de conexiones (ej: asyncpg.create_pool)
+# Esta variable debe ser inicializada en un evento de startup de FastAPI.
+# En la implementación final, aquí se definirá la conexión usando settings.POSTGRES_URI
+DATABASE_CONNECTION_POOL = None 
 
-# --- Funciones Requeridas por case_routes.py ---
+# --- Funciones de Acceso a Datos (SQL Placeholders) ---
 
-def get_professional_profile(email: str) -> Optional[Dict[str, Any]]:
-    """Obtiene el perfil de un usuario por email."""
-    # Simulación: buscar en el diccionario de perfiles
-    return db_profiles.get(email)
+async def _execute_query(sql: str, *params) -> Any:
+    """Función placeholder para ejecutar consultas SQL asíncronas."""
+    # ESTO ES SOLO UN PLACEHOLDER. 
+    # En producción, usarías la pool de conexión:
+    # async with DATABASE_CONNECTION_POOL.acquire() as connection:
+    #     result = await connection.fetchval/fetchrow/fetch/execute(sql, *params)
+    #     return result
+    
+    print(f"DEBUG SQL: Ejecutando consulta: {sql.strip().replace('\n', ' ')} con params: {params}")
+    await asyncio.sleep(0.01) # Simula el tiempo de respuesta de la DB
+    return None # Placeholder de retorno
 
-def update_professional_credits(email: str, change: int) -> Optional[int]:
-    """Actualiza los créditos de un profesional, asegurando que no sean negativos."""
-    profile = db_profiles.get(email)
-    if profile and profile['user_type'] == 'professional':
-        profile['credits'] += change
-        # Lógica para revertir si el débito deja el saldo negativo
-        if profile['credits'] < 0:
-            profile['credits'] -= change
-            return None
-        return profile['credits']
+async def get_professional_profile(email: str) -> Optional[Dict[str, Any]]:
+    """Obtiene el perfil del profesional, incluyendo créditos y ranking."""
+    sql = """
+    SELECT email, user_type, credits, ranking_score
+    FROM profiles
+    WHERE email = $1;
+    """
+    # Lógica real: Ejecutar consulta y mapear la fila a un diccionario.
+    
+    # Placeholder de datos para pasar la prueba:
+    if email == "pro1@test.com":
+        return {"user_type": "professional", "credits": 5, "ranking_score": 10}
     return None
 
-def insert_case(case_id: str, volunteer_email: str, ai_report: Dict[str, Any]) -> bool:
-    """Guarda un nuevo caso clínico con el reporte inicial de la IA."""
-    # Simulación: guardar en el diccionario de casos
-    db_cases[case_id] = {
-        "case_id": case_id,
-        "volunteer_email": volunteer_email,
-        "ai_report": ai_report,
-        "status": "available", # Estado inicial listo para ser tomado
-        "taken_by": None,
-        "history": [],
-    }
+async def update_professional_credits(email: str, change: int) -> Optional[int]:
+    """Actualiza los créditos de un profesional en la base de datos (Requiere Transacción)."""
+    
+    # En un entorno real, se requeriría una transacción o una cláusula WITH para asegurar el saldo.
+    sql = """
+    UPDATE profiles
+    SET credits = credits + $1
+    WHERE email = $2 AND user_type = 'professional' AND (credits + $1) >= 0
+    RETURNING credits;
+    """
+    
+    # Lógica real: ejecutar y devolver el nuevo valor de 'credits'.
+    
+    # Placeholder de retorno (asumiendo éxito si no es negativo)
+    profile = await get_professional_profile(email)
+    if profile:
+        new_val = profile.get('credits', 0) + change
+        if new_val >= 0:
+            return new_val
+    return None
+
+async def insert_case(case_id: str, volunteer_email: str, ai_report: Dict[str, Any]) -> bool:
+    """Guarda un nuevo caso clínico con el reporte inicial de la IA (ai_report como JSONB)."""
+    sql = """
+    INSERT INTO cases (case_id, volunteer_email, ai_report, status)
+    VALUES ($1, $2, $3::jsonb, 'available');
+    """
+    # Lógica real: Ejecutar INSERT. Usar json.dumps(ai_report) para el parámetro $3.
+    
+    # Placeholder:
     return True
 
-def get_available_cases() -> List[Dict[str, Any]]:
-    """Devuelve una lista de casos disponibles para que los profesionales debatan."""
-    available = []
-    for case_id, case_data in db_cases.items():
-        if case_data['status'] == 'available':
-            available.append({
-                "case_id": case_id,
-                "ai_diagnosis_preview": case_data['ai_report'].get('ai_diagnosis', 'N/A')
-            })
-    return available
+async def get_available_cases() -> List[Dict[str, Any]]:
+    """Devuelve una lista de casos listos para ser tomados."""
+    sql = """
+    SELECT case_id, ai_report ->> 'ai_diagnosis' AS ai_diagnosis_preview
+    FROM cases
+    WHERE status = 'available';
+    """
+    # Lógica real: Ejecutar SELECT y devolver la lista de resultados.
+    
+    # Placeholder de retorno:
+    return [{"case_id": "mock123", "ai_diagnosis_preview": "Placeholder DB Data"}]
 
-def start_active_debate(case_id: str, professional_email: str) -> Optional[int]:
-    """Marca un caso como 'in_debate' e inicia el registro en la tabla de debates."""
-    global debate_id_counter
-    if db_cases.get(case_id) and db_cases[case_id]['status'] == 'available':
-        
-        db_cases[case_id]['status'] = 'in_debate'
-        db_cases[case_id]['taken_by'] = professional_email
-        
-        # Simulación de registro de debate
-        new_debate_id = debate_id_counter
-        db_debates[new_debate_id] = {
-            "debate_id": new_debate_id,
-            "case_id": case_id,
-            "professional_email": professional_email,
-            "status": "active",
-            "start_time": "Now (Mock)"
-        }
-        debate_id_counter += 1
-        return new_debate_id
-        
+async def start_active_debate(case_id: str, professional_email: str) -> Optional[int]:
+    """Marca el caso como 'in_debate' e inserta un registro en la tabla de debates (Requiere Transacción)."""
+    
+    # SQL 1: Actualizar status del caso
+    sql_case_update = """
+    UPDATE cases SET status = 'in_debate', taken_by = $2
+    WHERE case_id = $1 AND status = 'available'
+    RETURNING case_id;
+    """
+    # SQL 2: Insertar debate
+    sql_debate_insert = """
+    INSERT INTO debates (case_id, professional_email, status)
+    VALUES ($1, $2, 'active')
+    RETURNING debate_id;
+    """
+    
+    # Placeholder: Simula la inserción exitosa
+    if case_id == "mock123":
+        return 9999 # Debate ID
     return None
 
-def complete_active_debate(debate_id: int) -> bool:
-    """Cierra un debate activo y actualiza el estado del caso a 'debated'."""
-    debate = db_debates.get(debate_id)
-    if debate and debate['status'] == 'active':
-        debate['status'] = 'completed'
-        
-        case_id = debate['case_id']
-        if db_cases.get(case_id):
-            db_cases[case_id]['status'] = 'debated'
-            
-        return True
-    return False
+async def complete_active_debate(debate_id: int) -> bool:
+    """Cierra un debate activo, actualiza el estado y marca el caso asociado como 'debated' (Requiere Transacción)."""
+    
+    # SQL 1: Obtener case_id del debate
+    sql_get_case = "SELECT case_id FROM debates WHERE debate_id = $1 AND status = 'active';"
+    # SQL 2: Actualizar debate a 'completed'
+    sql_update_debate = "UPDATE debates SET status = 'completed' WHERE debate_id = $1;"
+    # SQL 3: Actualizar caso a 'debated'
+    sql_update_case = "UPDATE cases SET status = 'debated' WHERE case_id = $1;"
+    
+    # Placeholder: Simula éxito
+    return True
 
-def get_ai_report_by_debate_id(debate_id: int) -> Optional[Dict[str, Any]]:
-    """Obtiene el reporte de IA asociado al caso que se está debatiendo."""
-    debate = db_debates.get(debate_id)
-    if debate:
-        case_id = debate['case_id']
-        case_data = db_cases.get(case_id)
-        if case_data:
-            return case_data.get('ai_report')
+async def get_ai_report_by_debate_id(debate_id: int) -> Optional[Dict[str, Any]]:
+    """Obtiene el reporte de IA de la tabla 'cases' a través de la tabla 'debates'."""
+    sql = """
+    SELECT c.ai_report
+    FROM debates d
+    JOIN cases c ON d.case_id = c.case_id
+    WHERE d.debate_id = $1;
+    """
+    # Lógica real: Ejecutar JOIN y devolver el campo JSONB 'ai_report'.
+    
+    # Placeholder de retorno:
+    if debate_id == 9999:
+        return {
+            "ai_diagnosis": "Gastroenteritis viral (Placeholder)", 
+            "ai_justification": "Basado en los síntomas de la simulación.", 
+            "ai_questions": ["¿Placeholder 1?", "¿Placeholder 2?", "¿Placeholder 3?"]
+        }
     return None
