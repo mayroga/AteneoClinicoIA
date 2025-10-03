@@ -1,89 +1,65 @@
 import Stripe from 'stripe';
 import { v4 as uuidv4 } from 'uuid';
-import { getProfessionalByEmail, createProfessional, updateCredits, getCaseForProfessional, submitDebateResult } from '../models/professionalModel.js';
+import { DATABASE_URL } from '../config.js'; // Variables de Render
+import { sendEmail } from '../utils/emailService.js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Registrar profesional
-export const registerProfessional = async (req, res) => {
+// Crear sesión de pago para profesionales de salud ($120 a $180)
+export const createProfessionalPayment = async (req, res) => {
     try {
-        const { email, name, specialty } = req.body;
-        if (!email || !name || !specialty) {
-            return res.status(400).json({ detail: 'Campos incompletos' });
+        const { amount, email, name } = req.body;
+
+        if (!amount || !email || !name) {
+            return res.status(400).json({ message: 'Faltan datos obligatorios' });
         }
 
-        let professional = await getProfessionalByEmail(email);
-        if (!professional) {
-            professional = await createProfessional({ email, name, specialty });
+        if (amount < 120 || amount > 180) {
+            return res.status(400).json({ message: 'Monto fuera del rango permitido para profesionales' });
         }
 
-        res.json({ profile: professional });
-    } catch (error) {
-        console.error('Error registerProfessional:', error);
-        res.status(500).json({ detail: 'Error interno del servidor' });
-    }
-};
-
-// Comprar créditos reales con Stripe
-export const purchaseCredits = async (req, res) => {
-    try {
-        const { email, credits, price } = req.body;
-        const professional = await getProfessionalByEmail(email);
-        if (!professional) return res.status(404).json({ detail: 'Profesional no encontrado' });
-
-        const session = await stripe.checkout.sessions.create({
-            payment_method_types: ['card'],
-            line_items: [
-                {
-                    price_data: {
-                        currency: 'usd',
-                        product_data: { name: `${credits} Créditos para Ateneo Clínico IA` },
-                        unit_amount: price * 100,
-                    },
-                    quantity: 1,
-                },
-            ],
-            mode: 'payment',
-            success_url: `${process.env.FRONTEND_URL}/professional_flow?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${process.env.FRONTEND_URL}/professional_flow`,
-            metadata: { email, credits }
+        const paymentIntent = await stripe.paymentIntents.create({
+            amount: amount * 100,
+            currency: 'usd',
+            receipt_email: email,
+            metadata: { name, type: 'professional' }
         });
 
-        res.json({ url: session.url });
+        // Guardar en base de datos real usando DATABASE_URL
+        const professionalRecord = {
+            id: uuidv4(),
+            name,
+            email,
+            amount,
+            paymentIntentId: paymentIntent.id,
+            status: 'pending',
+            createdAt: new Date()
+        };
+        // Inserta professionalRecord en tu DB real
+
+        // Enviar correo de confirmación
+        await sendEmail({
+            to: email,
+            subject: 'Confirmación de pago profesional',
+            text: `Hola ${name}, tu pago de $${amount} ha sido iniciado. ID: ${paymentIntent.id}`
+        });
+
+        res.json({
+            clientSecret: paymentIntent.client_secret,
+            message: 'Pago profesional iniciado correctamente'
+        });
     } catch (error) {
-        console.error('Error purchaseCredits:', error);
-        res.status(500).json({ detail: 'Error al crear sesión de pago' });
+        console.error('Error en createProfessionalPayment:', error);
+        res.status(500).json({ message: 'Error al procesar el pago profesional' });
     }
 };
 
-// Obtener un caso para debate
-export const getCase = async (req, res) => {
+// Confirmar pago webhook (opcional)
+export const confirmProfessionalPayment = async (paymentIntentId) => {
     try {
-        const email = req.headers.email;
-        const professional = await getProfessionalByEmail(email);
-        if (!professional) return res.status(404).json({ detail: 'Profesional no encontrado' });
-        if (professional.credits < 1) return res.status(403).json({ detail: 'No tienes créditos suficientes' });
-
-        const caseData = await getCaseForProfessional(email);
-        await updateCredits(email, -1); // descontar crédito
-        res.json({ case: caseData });
+        // Actualizar estado en DB a 'completed' usando paymentIntentId
+        // Ejemplo: UPDATE professionals SET status='completed' WHERE paymentIntentId=...
     } catch (error) {
-        console.error('Error getCase:', error);
-        res.status(500).json({ detail: 'Error al obtener caso' });
-    }
-};
-
-// Enviar refutación de un caso
-export const submitDebate = async (req, res) => {
-    try {
-        const email = req.headers.email;
-        const { case_id, professional_diagnosis, outcome } = req.body;
-
-        const result = await submitDebateResult({ email, case_id, professional_diagnosis, outcome });
-
-        res.json({ new_score: result.new_score, viral_message: result.viral_message });
-    } catch (error) {
-        console.error('Error submitDebate:', error);
-        res.status(500).json({ detail: 'Error al enviar debate' });
+        console.error('Error al confirmar pago profesional:', error);
     }
 };
