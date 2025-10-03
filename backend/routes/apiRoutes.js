@@ -1,56 +1,19 @@
-const express = require('express');
+import express from 'express';
+import { registerVolunteer, purchaseCredits, getCase, submitDebate } from '../controllers/volunteerController.js';
+import { registerProfessional, purchaseProfessionalCredits, getProfessionalCase, submitProfessionalDebate } from '../controllers/professionalController.js';
+
 const router = express.Router();
-const volunteerController = require('../controllers/volunteerController');
-const professionalController = require('../controllers/professionalController');
 
-// Rutas voluntarios
-router.post('/volunteer/waiver', async (req, res) => {
-    const { email } = req.body;
-    const result = await volunteerController.acceptWaiver(email);
-    res.json(result);
-});
+// Rutas para Voluntarios
+router.post('/volunteer/register', registerVolunteer);
+router.post('/volunteer/purchase', purchaseCredits);
+router.get('/volunteer/case', getCase);
+router.post('/volunteer/debate', submitDebate);
 
-router.post('/volunteer/case', async (req, res) => {
-    const { email, historyText, imageFile } = req.body;
-    const result = await volunteerController.submitVolunteerCase(email, historyText, imageFile);
-    res.json(result);
-});
+// Rutas para Profesionales de Salud
+router.post('/professional/register', registerProfessional);
+router.post('/professional/purchase', purchaseProfessionalCredits);
+router.get('/professional/case', getProfessionalCase);
+router.post('/professional/debate', submitProfessionalDebate);
 
-router.get('/volunteer/report/:email', async (req, res) => {
-    const { email } = req.params;
-    const report = await volunteerController.getVolunteerReport(email);
-    res.json(report);
-});
-
-router.post('/volunteer/payment', async (req, res) => {
-    const { email, amount } = req.body;
-    const clientSecret = await volunteerController.createVolunteerPaymentIntent(email, amount);
-    res.json({ client_secret: clientSecret });
-});
-
-// Rutas profesionales
-router.post('/professional/waiver', async (req, res) => {
-    const { email } = req.body;
-    const result = await professionalController.acceptWaiver(email);
-    res.json(result);
-});
-
-router.post('/professional/case', async (req, res) => {
-    const { email, historyText, imageFile } = req.body;
-    const result = await professionalController.submitProfessionalCase(email, historyText, imageFile);
-    res.json(result);
-});
-
-router.get('/professional/report/:email', async (req, res) => {
-    const { email } = req.params;
-    const report = await professionalController.getProfessionalReport(email);
-    res.json(report);
-});
-
-router.post('/professional/payment', async (req, res) => {
-    const { email, amount } = req.body;
-    const clientSecret = await professionalController.createProfessionalPaymentIntent(email, amount);
-    res.json({ client_secret: clientSecret });
-});
-
-module.exports = router;
+export default router;
