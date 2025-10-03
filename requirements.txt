@@ -1,11 +1,9 @@
-fastapi
-uvicorn[standard]
-pydantic-settings
-python-dotenv
-google-genai
-psycopg2-binary
-sendgrid  # <-- ¡NUEVA LIBRERÍA DE ENVÍO DE CORREOS!
-stripe
-pydantic
-email-validator
-asyncpg>=0.27.0
+fastapi==0.103.0
+uvicorn==0.24.0
+python-multipart==0.0.6
+stripe==7.27.0
+requests==2.31.0
+pydantic==1.10.11
+python-dotenv==1.0.0
+firebase-admin==6.0.1
+aiofiles==23.1.0
