@@ -1,41 +1,33 @@
-from fastapi import FastAPI
-from contextlib import asynccontextmanager
-# Importa los routers (asegúrate de que todos tus archivos routes/ existen y tienen una variable 'router')
-from routes.auth import router as auth_router
-from routes.volunteer import router as volunteer_router
-from routes.professional import router as professional_router
-from routes.admin import router as admin_router
-from database import init_db
-from config import APP_NAME
+import os
 
-# Contexto de inicio y cierre de la aplicación
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Inicializa la base de datos al inicio
-    print("Initializing Database...")
-    init_db()
-    yield
-    # Lógica de limpieza al cerrar (si es necesaria)
-    print("Application shutdown complete.")
+# Variables de entorno críticas
+# Estas DEBEN ser definidas en Render para que la aplicación inicie sin "Timed Out"
+DATABASE_URL = os.getenv("DATABASE_URL")
+EMAIL_API_KEY = os.getenv("EMAIL_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+SENDER_EMAIL = os.getenv("SENDER_EMAIL")
+STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY")
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+ADMIN_BYPASS_KEY = os.getenv("ADMIN_BYPASS_KEY")
 
-# Inicialización de la app FastAPI
-# Usamos docs_url y redoc_url para ver la documentación de la API en el navegador
-app = FastAPI(
-    title=APP_NAME,
-    version="0.1.0",
-    lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-)
+# Configuraciones generales
+APP_NAME = "Ateneo Clínico IA"
+APP_ENV = os.getenv("APP_ENV", "production")
+DEBUG = os.getenv("DEBUG", "False") == "True"
 
-# Incluir routers (agrupaciones de rutas)
-app.include_router(auth_router, prefix="/auth", tags=["Auth"])
-app.include_router(volunteer_router, prefix="/volunteer", tags=["Volunteer"])
-app.include_router(professional_router, prefix="/professional", tags=["Professional"])
-app.include_router(admin_router, prefix="/admin", tags=["Admin"])
+# Seguridad
+# IMPORTANTE: El valor predeterminado SÓLO se usa si no está en Render.
+# Ya que lo añadiste en Render, se usará ese valor seguro.
+SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey_change_me")
 
-# Ruta raíz de prueba
-@app.get("/", tags=["Root"])
-async def root():
-    """Ruta de bienvenida que verifica que la API está funcionando."""
-    return {"message": f"Welcome to {APP_NAME} API. Check /api/docs for documentation."}
+# Configuración de correo
+EMAIL_SENDER = SENDER_EMAIL
+EMAIL_SUBJECT_PREFIX = "[Ateneo Clínico IA]"
+
+# Configuración de IA
+AI_TIMEOUT_SECONDS = 7  # Tiempo máximo de respuesta de la IA
+AI_MODEL = "gemini"     # Modelo de IA principal (gemini-2.5-flash-preview-05-20 se usaría para la implementación)
+
+# Stripe
+STRIPE_CURRENCY = "usd"
