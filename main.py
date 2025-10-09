@@ -1,40 +1,45 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-import uvicorn
-from database import Base, engine # Importamos Base y engine para crear tablas
-from routes import auth, volunteer, professional, admin
+# Importa los routers (asegúrate de que todos tus archivos routes/ existen y tienen una variable 'router')
+from routes.auth import router as auth_router
+from routes.volunteer import router as volunteer_router
+from routes.professional import router as professional_router
+from routes.admin import router as admin_router
+from database import init_db
+from config import APP_NAME
 
-# 1. Definición de la aplicación y manejo de eventos (FastAPI)
+# Contexto de inicio y cierre de la aplicación
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Lógica de inicio de la aplicación: Crear tablas DB
-    # Este paso reemplaza la llamada Flask init_db(app)
-    print("Iniciando aplicación y creando tablas de base de datos...")
-    Base.metadata.create_all(bind=engine)
+    """
+    Función que se ejecuta cuando la aplicación se inicia y se cierra.
+    Ideal para inicializar recursos como la base de datos.
+    """
+    # Inicializa la base de datos al inicio
+    print("Initializing Database...")
+    init_db()
     yield
-    # Lógica de apagado (opcional)
-    print("Apagando aplicación...")
+    # Lógica de limpieza al cerrar (si es necesaria)
+    print("Application shutdown complete.")
 
 # Inicialización de la app FastAPI
+# Usamos docs_url y redoc_url para ver la documentación de la API en el navegador
 app = FastAPI(
-    title="Ateneo Clínico IA", 
-    version="1.0.0",
-    lifespan=lifespan
+    title=APP_NAME,
+    version="0.1.0",
+    lifespan=lifespan, # Vincula la función de inicialización de la DB
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
 )
 
-# 2. Registrar Routers (FastAPI)
-# Usamos .router, que es el nombre de la variable definida en tus archivos de ruta (e.g., routes/volunteer.py)
-app.include_router(auth.router, prefix='/auth', tags=["Auth"])
-app.include_router(volunteer.router, prefix='/volunteer', tags=["Volunteer"])
-app.include_router(professional.router, prefix='/professional', tags=["Professional"])
-app.include_router(admin.router, prefix='/admin', tags=["Admin"])
+# Incluir routers (agrupaciones de rutas)
+app.include_router(auth_router, prefix="/auth", tags=["Auth"])
+app.include_router(volunteer_router, prefix="/volunteer", tags=["Volunteer"])
+app.include_router(professional_router, prefix="/professional", tags=["Professional"])
+app.include_router(admin_router, prefix="/admin", tags=["Admin"])
 
-# 3. La ruta raíz (simplemente devuelve un mensaje)
-@app.get('/')
-def index():
-    return {"message": "Bienvenido al Ateneo Clínico IA (API en funcionamiento)"}
-
-# 4. Error handlers sencillos (FastAPI maneja 404s por defecto)
-
-# NOTA: El if __name__ == '__main__': es eliminado. 
-# La aplicación será iniciada por Gunicorn/Uvicorn usando el Start Command: gunicorn main:app
+# Ruta raíz de prueba
+@app.get("/", tags=["Root"])
+async def root():
+    """Ruta de bienvenida que verifica que la API está funcionando."""
+    return {"message": f"Welcome to {APP_NAME} API. Check /api/docs for documentation."}
