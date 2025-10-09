@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}Subir Caso Voluntario{% endblock %}
+
+{% block content %}
+<h2>Subir caso clínico voluntario</h2>
+<form method="POST" action="/volunteer/submit" enctype="multipart/form-data">
+    <label>Descripción del caso:</label>
+    <textarea name="description" required></textarea>
+    <label>Archivo (imagen, video o PDF):</label>
+    <input type="file" name="file" required>
+    <button type="submit">Enviar Caso</button>
+</form>
+<a href="/volunteer/dashboard">Volver al dashboard</a>
+{% endblock %}
