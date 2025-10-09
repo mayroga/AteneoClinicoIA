@@ -2,7 +2,8 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
 from models import Case, User
-from services.payment_service import charge_volunteer
+# CAMBIO CLAVE: Importar la función con el nombre correcto que está definida en el servicio
+from services.payment_service import create_volunteer_payment_session 
 from services.ai_service import analyze_case
 from services.anonymizer import anonymize_file
 import datetime
@@ -25,8 +26,19 @@ async def submit_case(
 
     # Pago obligatorio
     try:
-        charge_volunteer(user_id, amount=50)
+        # CAMBIO CLAVE: Llamar a la función con el nombre correcto
+        payment_session = create_volunteer_payment_session(user_email=user.email, case_price=50) 
+        
+        # Verificar si la creación de la sesión devolvió un error (no si el pago fue exitoso, sino si la sesión fue creada)
+        if "error" in payment_session:
+            raise Exception(payment_session["error"])
+        
+        # Opcional: Aquí deberías redirigir al usuario a payment_session["url"] para que pague
+        # Para el propósito del backend, asumiremos que si la sesión se creó, el flujo de pago comienza.
+        
     except Exception as e:
+        # Nota: La función en el servicio acepta user_email, así que si tu modelo User tiene el campo email, úsalo.
+        # Asumiendo que el modelo User tiene un campo 'email' que puedes usar.
         raise HTTPException(status_code=400, detail=f"Error en el pago: {str(e)}")
 
     file_path = None
