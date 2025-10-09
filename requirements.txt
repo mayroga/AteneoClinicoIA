@@ -2,14 +2,15 @@ Flask==3.1.2
 Flask-Cors==4.0.0
 itsdangerous==2.2.0
 Jinja2==3.1.4
-Werkzeug==3.1.0  # Corregido para cumplir con Flask 3.1.2 (requiere >=3.1.0)
+Werkzeug==3.1.0
 click==8.1.7
 blinker==1.9.0
 python-dotenv==1.0.1
 requests==2.32.3
-SQLAlchemy==2.0.28  # Usando la versión más reciente
+SQLAlchemy==2.0.28
 psycopg2-binary==2.9.9
 bcrypt==4.2.0
+passlib==1.7.4  # Añade Passlib (o simplemente passlib)
 typing-extensions==4.12.2
 stripe==12.5.1
 google-generativeai==0.7.2
