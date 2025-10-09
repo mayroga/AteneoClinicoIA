@@ -20,7 +20,7 @@ class User(Base):
     # Nota: También podrías añadir una relación para 'assigned_cases' si fuera necesario
     # assigned_cases = relationship("Case", foreign_keys='Case.assigned_to_id', viewonly=True)
 
-# Tabla para definir los planes de suscripción para profesionales
+# Tabla para definir los planes de suscripción para profesionales (LA CLASE FALTANTE)
 class ProfessionalLevel(Base):
     __tablename__ = "professional_levels"
 
