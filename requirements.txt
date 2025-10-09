@@ -7,8 +7,8 @@ python-dotenv==1.0.0
 # Requests HTTP
 requests==2.32.0
 
-# Stripe
-stripe==7.17.0
+# Stripe (versión estable y compatible)
+stripe==12.5.1
 
 # Gemini AI (si usas la API oficial)
 gemini==0.1.0
