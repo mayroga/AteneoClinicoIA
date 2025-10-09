@@ -1,31 +1,17 @@
-# --- Framework principal ---
 Flask==3.1.2
 Flask-Cors==4.0.0
-
-# --- Plantillas y utilidades internas de Flask ---
 itsdangerous>=2.2.0,<3.0.0
 Jinja2>=3.1.2,<4.0.0
-Werkzeug>=2.3.0,<3.0.0
+Werkzeug>=3.1.0,<4.0.0
 click>=8.1.3,<9.0.0
 blinker>=1.9.0
-
-# --- Variables de entorno ---
 python-dotenv==1.0.0
-
-# --- HTTP requests ---
-requests==2.32.0
-
-# --- Base de datos ---
-SQLAlchemy==2.0.29
-
-# --- Seguridad y autenticación ---
-bcrypt==4.1.0
-
-# --- Tipado y soporte ---
-typing-extensions==4.7.1
-
-# --- Pagos (Stripe) ---
+requests==2.32.3
 stripe==12.5.1
-
-# --- Gemini (si realmente lo usas, de Google) ---
-# gemini>=0.30.2,<0.31.0
+google-generativeai==0.7.2
+SQLAlchemy==2.0.29
+psycopg2-binary==2.9.9
+bcrypt==4.2.0
+typing-extensions==4.12.2
+uvicorn==0.23.2
+fastapi==0.115.0
