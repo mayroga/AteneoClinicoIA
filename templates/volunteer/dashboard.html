@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard Voluntario{% endblock %}
+
+{% block content %}
+<h2>Dashboard Voluntario</h2>
+<p>Bienvenido, {{ user.full_name }}.</p>
+<a href="/volunteer/submit">Subir nuevo caso</a>
+<h3>Casos enviados:</h3>
+<ul>
+    {% for case in cases %}
+    <li>{{ case.description }} - Estado: {{ case.status }}</li>
+    {% endfor %}
+</ul>
+{% endblock %}
