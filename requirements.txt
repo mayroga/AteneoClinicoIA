@@ -10,10 +10,11 @@ requests==2.32.3
 SQLAlchemy==2.0.28
 psycopg2-binary==2.9.9
 bcrypt==4.2.0
-passlib==1.7.4  # Añade Passlib (o simplemente passlib)
+passlib==1.7.4
 typing-extensions==4.12.2
 stripe==12.5.1
 google-generativeai==0.7.2
 uvicorn==0.23.2
 fastapi==0.115.0
 gunicorn==22.0.0
+python-multipart==0.0.9
