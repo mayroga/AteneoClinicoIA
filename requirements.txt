@@ -1,37 +1,22 @@
 # Framework web
 Flask==3.1.2
 
-# Manejo de variables de entorno
+# Variables de entorno
 python-dotenv==1.0.0
 
-# Requests HTTP
+# Peticiones HTTP
 requests==2.32.0
 
-# Stripe (versión estable y compatible)
+# Stripe para pagos
 stripe==12.5.1
 
-# Gemini AI (si usas la API oficial)
-gemini==0.1.0
+# API de Gemini (IA)
+gemini==0.30.2
 
-# Librerías para manejo de datos y utilidades
-pandas==2.1.1
-numpy==1.27.5
-
-# Seguridad y autenticación
-itsdangerous==2.1.2
-Werkzeug==2.3.8
-bcrypt==4.1.1
-
-# Correo electrónico
-email-validator==2.3.1
-Flask-Mail==0.9.1
-
-# CORS para APIs
-Flask-Cors==4.2.0
-
-# Opcional: manejo de bases de datos SQL
-SQLAlchemy==2.0.23
-psycopg2-binary==2.9.7  # Para PostgreSQL
-
-# Validaciones y esquemas
-pydantic==2.2.2
+# Librerías útiles adicionales
+gunicorn==21.2.0      # Servidor WSGI para despliegue en producción
+Werkzeug==2.3.8       # Dependencia de Flask
+Jinja2==3.1.2         # Motor de templates de Flask
+click==8.2.0          # Utilidades de línea de comandos
+itsdangerous==2.1.2   # Seguridad en Flask
+markupsafe==2.1.3     # Para plantillas seguras
