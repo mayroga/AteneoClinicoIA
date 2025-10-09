@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard Profesional{% endblock %}
+
+{% block content %}
+<h2>Dashboard Profesional</h2>
+<p>Bienvenido, {{ user.full_name }}.</p>
+<a href="/professional/case_review">Revisar casos asignados</a>
+<h3>Ranking y puntos:</h3>
+<ul>
+    <li>Puntos: {{ user.points }}</li>
+    <li>Nivel: {{ user.level }}</li>
+</ul>
+{% endblock %}
