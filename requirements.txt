@@ -23,6 +23,10 @@ flask-cors==4.0.0
 
 # Tipos y extensiones
 typing-extensions==4.12.2
+# Base de datos
+SQLAlchemy==2.0.25
+psycopg2-binary==2.9.9
+
 
 # Seguridad / autenticación
 bcrypt==4.2.0
