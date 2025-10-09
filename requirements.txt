@@ -1,8 +1,37 @@
-Flask==3.2.2
-Flask-SQLAlchemy==3.0.5
-psycopg2-binary==2.9.9
-requests==2.31.0
-gunicorn==21.2.0
-stripe==6.16.0
-sendgrid==6.11.0
+# Framework web
+Flask==3.1.2
+
+# Manejo de variables de entorno
 python-dotenv==1.0.0
+
+# Requests HTTP
+requests==2.32.0
+
+# Stripe
+stripe==7.17.0
+
+# Gemini AI (si usas la API oficial)
+gemini==0.1.0
+
+# Librerías para manejo de datos y utilidades
+pandas==2.1.1
+numpy==1.27.5
+
+# Seguridad y autenticación
+itsdangerous==2.1.2
+Werkzeug==2.3.8
+bcrypt==4.1.1
+
+# Correo electrónico
+email-validator==2.3.1
+Flask-Mail==0.9.1
+
+# CORS para APIs
+Flask-Cors==4.2.0
+
+# Opcional: manejo de bases de datos SQL
+SQLAlchemy==2.0.23
+psycopg2-binary==2.9.7  # Para PostgreSQL
+
+# Validaciones y esquemas
+pydantic==2.2.2
