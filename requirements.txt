@@ -7,3 +7,4 @@ itsdangerous>=2.2.0
 Jinja2>=3.1.2
 Werkzeug>=2.3.7
 uvicorn==0.23.2
+fastapi==0.115.0
