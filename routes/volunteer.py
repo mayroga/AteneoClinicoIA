@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
 from models import Case, User
-# CAMBIO CLAVE: Importar la función con el nombre correcto que está definida en el servicio
+# CORRECCIÓN: Importar la función con el nombre correcto
 from services.payment_service import create_volunteer_payment_session 
 from services.ai_service import analyze_case
 from services.anonymizer import anonymize_file
@@ -26,20 +26,17 @@ async def submit_case(
 
     # Pago obligatorio
     try:
-        # CAMBIO CLAVE: Llamar a la función con el nombre correcto
-        payment_session = create_volunteer_payment_session(user_email=user.email, case_price=50) 
+        # CORRECCIÓN: Llamar a la función con el nombre correcto y pasar el email y precio
+        payment_session_data = create_volunteer_payment_session(user_email=user.email, case_price=50)
         
-        # Verificar si la creación de la sesión devolvió un error (no si el pago fue exitoso, sino si la sesión fue creada)
-        if "error" in payment_session:
-            raise Exception(payment_session["error"])
-        
-        # Opcional: Aquí deberías redirigir al usuario a payment_session["url"] para que pague
-        # Para el propósito del backend, asumiremos que si la sesión se creó, el flujo de pago comienza.
-        
+        # Opcional: Si deseas que el pago sea bloqueante antes de guardar el caso, 
+        # necesitarías más lógica aquí (como verificar el estado del pago o redirigir).
+        # Para pasar la fase de inicio, solo nos aseguraremos de que no haya un error.
+        if "error" in payment_session_data:
+            raise Exception(payment_session_data["error"])
+
     except Exception as e:
-        # Nota: La función en el servicio acepta user_email, así que si tu modelo User tiene el campo email, úsalo.
-        # Asumiendo que el modelo User tiene un campo 'email' que puedes usar.
-        raise HTTPException(status_code=400, detail=f"Error en el pago: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Error en la creación de la sesión de pago: {str(e)}")
 
     file_path = None
     if file:
@@ -51,11 +48,17 @@ async def submit_case(
             f.write(await file.read())
 
         # Anonimizar archivo
+        # Nota: Asegúrate de que anonymize_file está implementada y funciona con la ruta
         file_path = anonymize_file(temp_path)
 
     # Guardar caso en DB
+    # NOTA: Tu modelo 'Case' requiere un 'title', pero no lo pides en el formulario.
+    # Asumiremos un título temporal para evitar un error de DB (nullable=False).
+    case_title = description[:50] if description else f"Caso Voluntario {new_case.id}"
+    
     new_case = Case(
         user_id=user_id,
+        title=case_title, 
         description=description,
         file_path=file_path,
         status="pending",
@@ -79,7 +82,8 @@ async def submit_case(
     return {
         "message": "Caso enviado y analizado correctamente",
         "case_id": new_case.id,
-        "ai_result": ai_result
+        "ai_result": ai_result,
+        "payment_url": payment_session_data["url"] if payment_session_data else None
     }
 
 # Consulta de casos previos del voluntario
@@ -89,5 +93,18 @@ def my_cases(user_id: int, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado o no es voluntario")
     
-    cases = db.query(Case).filter(Case.user_id == user_id).all()
-    return [{"id": c.id, "description": c.description, "status": c.status, "ai_result": c.ai_result} for c in cases]
+    cases = db.query(Case).filter(Case.volunteer_id == user_id).all()
+    
+    # Asegúrate de usar 'volunteer_id' si es la llave foránea correcta en el modelo Case
+    # NOTA: En tu modelo Case tienes 'volunteer_id' pero en la consulta usaste 'Case.user_id'.
+    # Lo corregí para usar volunteer_id.
+    
+    return [
+        {
+            "id": c.id, 
+            "title": c.title,
+            "description": c.description, 
+            "status": c.status, 
+            "ai_result": c.ai_result
+        } for c in cases
+    ]
