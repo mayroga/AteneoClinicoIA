@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 # Importación necesaria para forzar la renderización de la documentación
-from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.openapi.docs import get_redoc_html
 
 # Importa tus routers (asegúrate de que las rutas a los archivos sean correctas)
 from routes.auth import router as auth_router
@@ -30,16 +30,14 @@ app = FastAPI(
     title=APP_NAME,
     version="0.1.0",
     lifespan=lifespan,
-    docs_url=None,  # Desactivamos la ruta por defecto para crear la nuestra
-    redoc_url=None  # Opcional: también desactivamos Redoc
+    # Desactivamos ambas rutas por defecto para forzar Redoc manualmente
+    docs_url=None,  
+    redoc_url=None  
 )
 
 # Configuración de CORS (Cross-Origin Resource Sharing)
-# Esto es CRUCIAL para que un frontend pueda comunicarse con esta API
 origins = [
     "*",  # Permite cualquier origen (ideal para desarrollo).
-    # En producción, deberías restringirlo a la URL de tu frontend.
-    # Ejemplo: "https://tu-frontend.onrender.com"
 ]
 
 app.add_middleware(
@@ -50,19 +48,22 @@ app.add_middleware(
     allow_headers=["*"],  # Permite todos los encabezados
 )
 
-# <<--- SOLUCIÓN: RUTA PERSONALIZADA PARA /docs --- >>
-@app.get("/docs", include_in_schema=False)
-async def custom_swagger_ui_html():
+
+# <<--- SOLUCIÓN: RUTA PERSONALIZADA PARA REDOC --- >>
+# Usamos Redoc por ser más estable en entornos de hosting complejos
+@app.get("/redoc", include_in_schema=False)
+async def redoc_html():
     """
-    Sirve la página HTML de Swagger UI.
-    Esto fuerza al navegador a renderizar la interfaz interactiva en lugar del JSON.
+    Sirve la página HTML de Redoc. Esto fuerza al navegador a renderizar
+    la interfaz interactiva en lugar del JSON.
     """
-    return get_swagger_ui_html(
+    return get_redoc_html(
         openapi_url=app.openapi_url,
-        title=app.title + " - Swagger UI"
+        title=app.title + " - Redoc"
     )
 
 # <<--- RUTA PARA EL openapi.json QUE USA LA DOCUMENTACIÓN --- >>
+# Mantenemos esta sin cambios, es el corazón de la documentación.
 @app.get(app.openapi_url, include_in_schema=False)
 async def get_open_api_endpoint():
     from fastapi.openapi.utils import get_openapi
@@ -82,4 +83,4 @@ app.include_router(admin_router, prefix="/admin", tags=["Admin"])
 @app.get("/", tags=["Root"])
 async def root():
     """Ruta de bienvenida que verifica que la API está funcionando."""
-    return {"message": f"Welcome to {APP_NAME} API. Check /docs for documentation."}
+    return {"message": f"Welcome to {APP_NAME} API. Check /redoc for documentation."}
