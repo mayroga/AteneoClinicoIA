@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-# Importa los routers (asegúrate de que todos tus archivos routes/ existen y tienen una variable 'router')
+# 🆕 Importa CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware 
+# Importa los routers...
 from routes.auth import router as auth_router
 from routes.volunteer import router as volunteer_router
 from routes.professional import router as professional_router
@@ -11,23 +13,30 @@ from config import APP_NAME
 # Contexto de inicio y cierre de la aplicación
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Función que se ejecuta cuando la aplicación se inicia y se cierra.
-    Ideal para inicializar recursos como la base de datos.
-    """
-    # Inicializa la base de datos al inicio
+    # ... (Inicialización de DB)
     print("Initializing Database...")
     init_db()
     yield
-    # Lógica de limpieza al cerrar (si es necesaria)
     print("Application shutdown complete.")
 
 # Inicialización de la app FastAPI
-# ¡ATENCIÓN! Se eliminan los parámetros docs_url y redoc_url para usar las rutas por defecto: /docs y /redoc
 app = FastAPI(
     title=APP_NAME,
     version="0.1.0",
-    lifespan=lifespan, # Vincula la función de inicialización de la DB
+    lifespan=lifespan,
+)
+
+# 🆕 Configuración de CORS
+origins = [
+    "*", # Permite cualquier origen por ahora (para desarrollo). CÁMBIALO para producción.
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"], # Permite todos los métodos (GET, POST, etc.)
+    allow_headers=["*"], # Permite todos los encabezados
 )
 
 # Incluir routers (agrupaciones de rutas)
