@@ -17,6 +17,19 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     cases = relationship("Case", back_populates="owner")
+    # Nota: También podrías añadir una relación para 'assigned_cases' si fuera necesario
+    # assigned_cases = relationship("Case", foreign_keys='Case.assigned_to_id', viewonly=True)
+
+# Tabla para definir los planes de suscripción para profesionales
+class ProfessionalLevel(Base):
+    __tablename__ = "professional_levels"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False) # E.g., "Nivel 1 Básico"
+    price_id = Column(String, unique=True, nullable=False) # ID del producto en Stripe para facturación
+    monthly_fee = Column(Float, nullable=False) # Cuota mensual en USD
+    features = Column(Text, nullable=True) # Descripción de las características del plan
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 # Casos clínicos
 class Case(Base):
