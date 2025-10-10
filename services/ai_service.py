@@ -1,26 +1,38 @@
 import os
-# Usamos el nombre de módulo completo para evitar el error 'has no attribute Client'
-from google.generativeai import Client, types
+# Importamos la librería y la inicializamos directamente.
+# La función 'configure' es más estable que intentar importar Client/types manualmente.
+import google.generativeai as genai 
 from config import GEMINI_API_KEY, AI_TIMEOUT_SECONDS
 
-# Inicializa el cliente globalmente (CORRECCIÓN APLICADA AQUÍ)
+# =================================================================
+# INICIALIZACIÓN ROBUSTA DE GEMINI
+# =================================================================
+# Intentamos configurar el cliente inmediatamente usando la clave de entorno.
 try:
     if GEMINI_API_KEY:
-        # Usamos Client en lugar de genai.Client
-        client = Client(api_key=GEMINI_API_KEY) 
+        genai.configure(api_key=GEMINI_API_KEY)
+        print("INFO: Cliente de Gemini configurado con éxito.")
     else:
-        client = None 
+        print("ADVERTENCIA: GEMINI_API_KEY no encontrada. El servicio de IA no funcionará.")
 except Exception as e:
-    print(f"Advertencia: No se pudo inicializar el cliente de Gemini: {e}")
-    client = None
+    print(f"ADVERTENCIA: Fallo en la configuración de Gemini: {e}")
+
+# Creamos una función auxiliar para obtener el cliente, ya configurado.
+def get_ai_client():
+    # Devolvemos una nueva instancia del cliente por si se necesita, aunque ya esté configurado.
+    # Usamos genai.Client() sin argumentos para usar la configuración global.
+    try:
+        return genai.Client()
+    except Exception as e:
+        # Esto atrapará errores si la configuración falló
+        raise ConnectionError(f"El cliente de Gemini no se pudo obtener. Revise su clave: {e}")
+
 
 def analyze_case(description: str, file_path: str = None) -> str:
     """
     Ejecuta el análisis multimodal de un caso clínico usando Gemini.
     """
-    if not client:
-        raise ConnectionError("El cliente de Gemini no está inicializado. ¿Falta la GEMINI_API_KEY en config?")
-
+    client = get_ai_client()
     model = 'gemini-2.5-flash'
     prompt_parts = [
         "Eres un asistente de análisis clínico. Analiza el siguiente caso de voluntario "
@@ -34,7 +46,6 @@ def analyze_case(description: str, file_path: str = None) -> str:
     try:
         # 1. Subir y añadir archivo si existe
         if file_path and os.path.exists(file_path):
-            print(f"Cargando archivo para análisis: {file_path}")
             file_part = client.files.upload(file=file_path)
             prompt_parts.append(file_part)
         
@@ -42,9 +53,7 @@ def analyze_case(description: str, file_path: str = None) -> str:
         response = client.models.generate_content(
             model=model,
             contents=prompt_parts,
-            config=types.GenerateContentConfig(
-                timeout=AI_TIMEOUT_SECONDS
-            )
+            config={"timeout": AI_TIMEOUT_SECONDS} # Usamos un dict simple para la configuración
         )
         
         return response.text
