@@ -1,14 +1,13 @@
 import os
-# Importamos la librería con su nombre de módulo completo
-import google.generativeai as genai
-from google.generativeai import types
+# Usamos el nombre de módulo completo para evitar el error 'has no attribute Client'
+from google.generativeai import Client, types
 from config import GEMINI_API_KEY, AI_TIMEOUT_SECONDS
 
-# Inicializa el cliente globalmente
+# Inicializa el cliente globalmente (CORRECCIÓN APLICADA AQUÍ)
 try:
     if GEMINI_API_KEY:
-        # Aquí se inicializa el cliente con la clave
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        # Usamos Client en lugar de genai.Client
+        client = Client(api_key=GEMINI_API_KEY) 
     else:
         client = None 
 except Exception as e:
@@ -19,7 +18,6 @@ def analyze_case(description: str, file_path: str = None) -> str:
     """
     Ejecuta el análisis multimodal de un caso clínico usando Gemini.
     """
-    # Verificación al inicio de la función
     if not client:
         raise ConnectionError("El cliente de Gemini no está inicializado. ¿Falta la GEMINI_API_KEY en config?")
 
@@ -52,11 +50,10 @@ def analyze_case(description: str, file_path: str = None) -> str:
         return response.text
 
     except Exception as e:
-        # Propagamos el error para que el webhook/bypass pueda marcar el caso como "error"
         raise Exception(f"Fallo en la comunicación con la IA: {str(e)}")
 
     finally:
-        # 3. Limpieza: Eliminar el archivo del servicio de Google y localmente
+        # 3. Limpieza
         if file_part:
             try:
                 client.files.delete(name=file_part.name)
