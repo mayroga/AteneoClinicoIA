@@ -37,7 +37,8 @@ app = FastAPI(
 
 # Configuración de CORS (Cross-Origin Resource Sharing)
 origins = [
-    "*",  # Permite cualquier origen (ideal para desarrollo).
+    # ✅ ESTO ES LO QUE ESTAMOS CORRIGIENDO: Usamos el dominio específico en lugar de "*"
+    "https://ateneoclinicoia.onrender.com", 
 ]
 
 app.add_middleware(
