@@ -4,7 +4,12 @@ from fastapi.middleware.cors import CORSMiddleware
 # Importación necesaria para forzar la renderización de la documentación
 from fastapi.openapi.docs import get_redoc_html
 
-# Importa tus routers (asegúrate de que las rutas a los archivos sean correctas)
+# =================================================================
+# 1. IMPORTACIÓN AÑADIDA PARA ARCHIVOS ESTÁTICOS
+from fastapi.staticfiles import StaticFiles 
+# =================================================================
+
+# Importa tus routers
 from routes.auth import router as auth_router
 from routes.volunteer import router as volunteer_router
 from routes.professional import router as professional_router
@@ -35,28 +40,32 @@ app = FastAPI(
     redoc_url=None  
 )
 
+# =================================================================
+# 2. CONFIGURACIÓN AÑADIDA PARA ARCHIVOS ESTÁTICOS
+# =================================================================
+# Esto mapea la carpeta 'static' del proyecto al path URL '/static', 
+# permitiendo que el navegador cargue tus recursos.
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # Configuración de CORS (Cross-Origin Resource Sharing)
 origins = [
-    # ✅ ESTO ES LO QUE ESTAMOS CORRIGIENDO: Usamos el dominio específico en lugar de "*"
-    "https://ateneoclinicoia.onrender.com", 
+    "https://ateneoclinicoia.onrender.com",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],  # Permite todos los métodos (GET, POST, etc.)
-    allow_headers=["*"],  # Permite todos los encabezados
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
 # <<--- SOLUCIÓN: RUTA PERSONALIZADA PARA REDOC --- >>
-# Usamos Redoc por ser más estable en entornos de hosting complejos
 @app.get("/redoc", include_in_schema=False)
 async def redoc_html():
     """
-    Sirve la página HTML de Redoc. Esto fuerza al navegador a renderizar
-    la interfaz interactiva en lugar del JSON.
+    Sirve la página HTML de Redoc.
     """
     return get_redoc_html(
         openapi_url=app.openapi_url,
@@ -64,7 +73,6 @@ async def redoc_html():
     )
 
 # <<--- RUTA PARA EL openapi.json QUE USA LA DOCUMENTACIÓN --- >>
-# Mantenemos esta sin cambios, es el corazón de la documentación.
 @app.get(app.openapi_url, include_in_schema=False)
 async def get_open_api_endpoint():
     from fastapi.openapi.utils import get_openapi
