@@ -11,19 +11,15 @@ from routes.auth import router as auth_router
 from routes.volunteer import router as volunteer_router
 from routes.professional import router as professional_router
 from routes.admin import router as admin_router
-# =================================================================
-# IMPORTACIÓN DEL NUEVO ROUTER DE STRIPE WEBHOOK
+# IMPORTACIÓN CRÍTICA DEL WEBHOOK
 from routes.stripe_webhook import router as stripe_webhook_router
-# =================================================================
+# Inicialización de DB
 from database import init_db
 from config import APP_NAME
 
 # Contexto de inicio y cierre de la aplicación
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Función que se ejecuta cuando la aplicación se inicia para preparar la base de datos.
-    """
     print("Initializing Database...")
     init_db()
     yield
@@ -38,16 +34,12 @@ app = FastAPI(
     redoc_url=None
 )
 
-# =================================================================
-# CONFIGURACIÓN DE ARCHIVOS ESTÁTICOS (PARA IMÁGENES/CSS/JS)
-# CRUCIAL para que cargue tu frontend.
-# =================================================================
+# CONFIGURACIÓN DE ARCHIVOS ESTÁTICOS
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Configuración de CORS
 origins = [
     "https://ateneoclinicoia.onrender.com",
-    # Añade cualquier otro dominio que necesites
 ]
 
 app.add_middleware(
@@ -58,28 +50,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# =================================================================
 # RUTA RAÍZ CORREGIDA: SIRVE EL ARCHIVO HTML
-# =================================================================
 @app.get("/", tags=["Root"], response_class=HTMLResponse)
 async def serve_frontend():
-    """Sirve el archivo HTML principal de la aplicación para el frontend."""
-    
-    # CRUCIAL: Asegúrate de que tu 'index.html' está en la carpeta raíz.
     html_file_path = "index.html" 
-
     try:
         with open(html_file_path, "r", encoding="utf-8") as f:
             html_content = f.read()
         return HTMLResponse(content=html_content)
     except FileNotFoundError:
-        return HTMLResponse(content="<h1>Error: Archivo index.html no encontrado en la ruta de la aplicación.</h1>", status_code=500)
+        return HTMLResponse(content="<h1>Error: Archivo index.html no encontrado.</h1>", status_code=500)
 
 
-# <<--- RUTAS DE DOCUMENTACIÓN --- >>
+# RUTAS DE DOCUMENTACIÓN
 @app.get("/redoc", include_in_schema=False)
 async def redoc_html():
-    """Sirve la página HTML de Redoc."""
     return get_redoc_html(
         openapi_url=app.openapi_url,
         title=app.title + " - Redoc"
@@ -94,12 +79,10 @@ async def get_open_api_endpoint():
         routes=app.routes,
     )
 
-# =================================================================
 # INCLUSIÓN DE ROUTERS
-# =================================================================
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 app.include_router(volunteer_router, prefix="/volunteer", tags=["Volunteer"])
 app.include_router(professional_router, prefix="/professional", tags=["Professional"])
 app.include_router(admin_router, prefix="/admin", tags=["Admin"])
-# ¡Añade el router de Webhook!
-app.include_router(stripe_webhook_router, prefix="/stripe", tags=["Stripe Webhook"])
+# INCLUSIÓN DEL WEBHOOK
+app.include_router(stripe_webhook_router) # Notar que este no lleva prefix para que la ruta sea /stripe/webhook
