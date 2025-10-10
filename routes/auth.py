@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
@@ -6,32 +6,39 @@ from database import get_db
 from models import User
 from pydantic import BaseModel
 import datetime
+from config import ADMIN_BYPASS_KEY # Importamos la clave de administrador desde config
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Schemas
+# =================================================================
+# SCHEMAS
+# =================================================================
 class RegisterUser(BaseModel):
     email: str
     password: str
-    role: str  # 'volunteer' o 'professional'
+    role: str  # 'volunteer', 'professional', o 'admin'
     waiver_signed: bool
 
 class LoginUser(BaseModel):
     email: str
     password: str
 
-# Funciones auxiliares
+# =================================================================
+# FUNCIONES AUXILIARES
+# =================================================================
 def hash_password(password: str):
     return pwd_context.hash(password)
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
-# Registro
+# =================================================================
+# 1. RUTA DE REGISTRO
+# =================================================================
 @router.post("/register")
 def register(user: RegisterUser, db: Session = Depends(get_db)):
-    if not user.waiver_signed:
+    if not user.waiver_signed and user.role != 'admin': # Admin no necesita waiver
         raise HTTPException(status_code=400, detail="Debe aceptar el waiver legal.")
     
     db_user = db.query(User).filter(User.email == user.email).first()
@@ -50,15 +57,47 @@ def register(user: RegisterUser, db: Session = Depends(get_db)):
     db.refresh(new_user)
     return {"message": "Usuario registrado correctamente", "user_id": new_user.id}
 
-# Login
+# =================================================================
+# 2. RUTA DE LOGIN ESTÁNDAR (Voluntario/Profesional)
+# =================================================================
 @router.post("/login")
 def login(user: LoginUser, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.email == user.email).first()
     if not db_user or not verify_password(user.password, db_user.hashed_password):
         raise HTTPException(status_code=401, detail="Correo o contraseña incorrectos.")
+    
+    # Podrías generar aquí un token JWT si lo necesitaras para el frontend
     return {"message": "Login exitoso", "user_id": db_user.id, "role": db_user.role}
 
-# Verificación de waiver
+# =================================================================
+# 3. RUTA DE LOGIN DE ADMINISTRADOR (¡RUTA CORREGIDA!)
+# =================================================================
+@router.post("/admin")
+def admin_login(
+    user: LoginUser, 
+    db: Session = Depends(get_db), 
+    admin_secret_key: str = Header(None, alias="X-Admin-Key") # Captura el encabezado secreto
+):
+    # Verificación de la clave de bypass de administrador (seguridad adicional)
+    if not admin_secret_key or admin_secret_key != ADMIN_BYPASS_KEY:
+        raise HTTPException(status_code=403, detail="Clave de administrador incorrecta o faltante.")
+
+    # Verificación de credenciales estándar (opcional si la clave secreta es suficiente)
+    db_user = db.query(User).filter(User.email == user.email, User.role == "admin").first()
+    if not db_user or not verify_password(user.password, db_user.hashed_password):
+        raise HTTPException(status_code=401, detail="Credenciales de Administrador incorrectas.")
+
+    # Si pasa ambas verificaciones, el acceso es otorgado
+    return {
+        "message": "Acceso de Administrador otorgado", 
+        "user_id": db_user.id, 
+        "role": "admin",
+        # Aquí se podría devolver un token de sesión de admin más potente
+    }
+
+# =================================================================
+# 4. RUTA DE VERIFICACIÓN DE WAIVER
+# =================================================================
 @router.get("/waiver-status/{user_id}")
 def waiver_status(user_id: int, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.id == user_id).first()
