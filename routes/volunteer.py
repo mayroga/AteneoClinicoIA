@@ -1,5 +1,3 @@
-# Archivo a identificar: routes/volunteer.py
-
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from database import get_db
@@ -14,16 +12,12 @@ import os
 
 router = APIRouter(prefix="/volunteer", tags=["volunteer"])
 
-# =================================================================
-# RUTA PRINCIPAL DE SERVICIO (CORREGIDA PARA EL FLUJO SEGURO Y BYPASS)
-# =================================================================
 @router.post("/submit-case")
 async def submit_case(
     user_id: int = Form(...),
     description: str = Form(...),
     file: UploadFile = File(None),
     db: Session = Depends(get_db),
-    # Captura del encabezado para el bypass de administrador
     x_admin_key: str = Header(None) 
 ):
     user = db.query(User).filter(User.id == user_id, User.role == "volunteer").first()
@@ -32,7 +26,6 @@ async def submit_case(
 
     file_path = None
     if file:
-        # Guardar archivo temporal y anonimizar
         filename = f"{uuid.uuid4()}_{file.filename}"
         temp_path = f"temp/{filename}"
         os.makedirs("temp", exist_ok=True)
@@ -45,19 +38,17 @@ async def submit_case(
     is_admin_bypass = False
     case_status = "awaiting_payment"
 
-    # 1. LÓGICA DE BYPASS DE ADMINISTRADOR (GRATIS/ILIMITADO)
+    # 1. LÓGICA DE BYPASS DE ADMINISTRADOR
     if x_admin_key and x_admin_key == ADMIN_BYPASS_KEY:
         is_admin_bypass = True
-        case_status = "paid" # Marcamos como pagado para el flujo inmediato
+        case_status = "paid" 
         print(f"ADMIN BYPASS ACTIVO: {user.email} obtiene acceso ilimitado.")
     else:
         # 2. LÓGICA DE USUARIO NORMAL (Requiere Stripe)
         try:
-            # La sesión se crea para el PAGO del caso
             payment_session_data = create_volunteer_payment_session(
                 user_email=user.email, 
                 case_price=50,
-                # Usamos metadata para identificar el caso más tarde en el webhook
                 metadata={"user_id": user_id, "description": case_title}
             )
             if "error" in payment_session_data:
@@ -103,7 +94,6 @@ async def submit_case(
         "payment_url": payment_session_data["url"]
     }
 
-# Consulta de casos previos del voluntario (se mantiene)
 @router.get("/my-cases/{user_id}")
 def my_cases(user_id: int, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id, User.role == "volunteer").first()
