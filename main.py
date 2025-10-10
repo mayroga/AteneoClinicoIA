@@ -1,13 +1,13 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-# Importación necesaria para forzar la renderización de la documentación
 from fastapi.openapi.docs import get_redoc_html
 
 # =================================================================
-# 1. IMPORTACIÓN AÑADIDA PARA ARCHIVOS ESTÁTICOS
-from fastapi.staticfiles import StaticFiles 
+# IMPORTACIONES AÑADIDAS/MODIFICADAS
 # =================================================================
+from fastapi.staticfiles import StaticFiles 
+from fastapi.responses import HTMLResponse 
 
 # Importa tus routers
 from routes.auth import router as auth_router
@@ -17,7 +17,7 @@ from routes.admin import router as admin_router
 from database import init_db
 from config import APP_NAME
 
-# Contexto de inicio y cierre de la aplicación para inicializar la base de datos
+# Contexto de inicio y cierre de la aplicación
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -27,7 +27,6 @@ async def lifespan(app: FastAPI):
     print("Initializing Database...")
     init_db()
     yield
-    # Lógica de limpieza al cerrar (si es necesaria)
     print("Application shutdown complete.")
 
 # Inicialización de la app FastAPI
@@ -35,19 +34,18 @@ app = FastAPI(
     title=APP_NAME,
     version="0.1.0",
     lifespan=lifespan,
-    # Desactivamos ambas rutas por defecto para forzar Redoc manualmente
-    docs_url=None,  
-    redoc_url=None  
+    docs_url=None,
+    redoc_url=None
 )
 
 # =================================================================
-# 2. CONFIGURACIÓN AÑADIDA PARA ARCHIVOS ESTÁTICOS
+# CONFIGURACIÓN DE ARCHIVOS ESTÁTICOS (CRUCIAL PARA IMÁGENES/CSS)
 # =================================================================
-# Esto mapea la carpeta 'static' del proyecto al path URL '/static', 
+# Mapea la carpeta 'static' del proyecto al path URL '/static', 
 # permitiendo que el navegador cargue tus recursos.
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Configuración de CORS (Cross-Origin Resource Sharing)
+# Configuración de CORS
 origins = [
     "https://ateneoclinicoia.onrender.com",
 ]
@@ -60,13 +58,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# =================================================================
+# RUTA RAÍZ CORREGIDA: SIRVE EL ARCHIVO HTML
+# =================================================================
+@app.get("/", tags=["Root"], response_class=HTMLResponse)
+async def serve_frontend():
+    """Sirve el archivo HTML principal de la aplicación."""
+    
+    # Asegúrate de que esta ruta apunte correctamente a tu archivo HTML.
+    # Asumimos que 'index.html' está en la carpeta raíz.
+    html_file_path = "index.html" 
 
-# <<--- SOLUCIÓN: RUTA PERSONALIZADA PARA REDOC --- >>
+    try:
+        with open(html_file_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
+    except FileNotFoundError:
+        # Si el archivo HTML no se encuentra, muestra un error en el navegador.
+        return HTMLResponse(content="<h1>Error: Archivo index.html no encontrado.</h1>", status_code=500)
+
+
+# <<--- RUTA PERSONALIZADA PARA REDOC --- >>
 @app.get("/redoc", include_in_schema=False)
 async def redoc_html():
-    """
-    Sirve la página HTML de Redoc.
-    """
+    """Sirve la página HTML de Redoc."""
     return get_redoc_html(
         openapi_url=app.openapi_url,
         title=app.title + " - Redoc"
@@ -82,14 +97,8 @@ async def get_open_api_endpoint():
         routes=app.routes,
     )
 
-# Incluir routers (agrupaciones de rutas de tu API)
+# Incluir routers
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 app.include_router(volunteer_router, prefix="/volunteer", tags=["Volunteer"])
 app.include_router(professional_router, prefix="/professional", tags=["Professional"])
 app.include_router(admin_router, prefix="/admin", tags=["Admin"])
-
-# Ruta raíz de prueba
-@app.get("/", tags=["Root"])
-async def root():
-    """Ruta de bienvenida que verifica que la API está funcionando."""
-    return {"message": f"Welcome to {APP_NAME} API. Check /redoc for documentation."}
