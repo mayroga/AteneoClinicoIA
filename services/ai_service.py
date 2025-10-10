@@ -1,74 +1,53 @@
-import os
-import requests
 from config import GEMINI_API_KEY
+from google import genai
+from google.genai import types
 
-GEMINI_ENDPOINT = "https://api.gemini.com/v1/analyze"  # Ajusta según documentación real
+# CRÍTICO: La librería de Gemini debe estar instalada (pip install google-genai)
 
-# -----------------------------
-# Analizar caso clínico
-# -----------------------------
-def analyze_case(case_data: dict):
+def analyze_case(description: str, file_path: str = None) -> str:
     """
-    Envía datos de un caso clínico a Gemini API para análisis.
-    case_data: {
-        "type": "text" | "image" | "video",
-        "content": "texto base64 o URL de archivo"
-    }
+    Ejecuta el análisis multimodal de un caso clínico usando Gemini.
     """
-    headers = {
-        "Authorization": f"Bearer {GEMINI_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "case_type": case_data.get("type"),
-        "case_content": case_data.get("content")
-    }
-    
-    try:
-        response = requests.post(GEMINI_ENDPOINT, json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
-        return response.json()  # Devuelve resultado del análisis de IA
-    except requests.exceptions.RequestException as e:
-        return {"error": str(e)}
-
-# -----------------------------
-# Generar resumen educativo y terapéutico
-# -----------------------------
-def generate_case_summary(case_analysis: dict):
-    """
-    Toma el resultado de Gemini y genera un resumen educativo y terapéutico.
-    """
-    try:
-        # Ejemplo básico: puedes personalizar según la respuesta de Gemini
-        summary = {
-            "diagnosis_suggestions": case_analysis.get("diagnoses", []),
-            "recommendations": case_analysis.get("recommendations", []),
-            "confidence": case_analysis.get("confidence_score", 0)
-        }
-        return summary
-    except Exception as e:
-        return {"error": str(e)}
-
-# -----------------------------
-# Detectar idioma y adaptar análisis
-# -----------------------------
-def detect_language_and_analyze(case_text: str):
-    """
-    Detecta idioma y envía el caso a Gemini adaptando idioma.
-    """
-    try:
-        # Método simple de detección (puedes mejorar con librerías externas)
-        if any(ord(c) > 127 for c in case_text):
-            language = "es"  # Español
-        else:
-            language = "en"  # Inglés
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY no está configurada. El servicio de IA no puede iniciar.")
         
-        case_data = {
-            "type": "text",
-            "content": case_text,
-            "language": language
-        }
-        return analyze_case(case_data)
+    try:
+        # Inicializa el cliente de la API
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        model = 'gemini-2.5-flash'
+        
+        prompt_parts = [
+            "Eres un asistente de análisis clínico. Analiza el siguiente caso de voluntario "
+            "y proporciona un resumen de las posibles vías de investigación y recomendaciones de acción "
+            "en base a la descripción y el archivo adjunto (si existe). Sé conciso y profesional. "
+            f"Descripción del caso: {description}"
+        ]
+        
+        # Añadir el archivo si existe
+        if file_path and os.path.exists(file_path):
+            print(f"Cargando archivo para análisis: {file_path}")
+            # El archivo debe ser cargado correctamente antes de enviarlo
+            file_part = client.files.upload(file=file_path)
+            prompt_parts.append(file_part)
+        
+        # Llama al modelo de IA
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt_parts,
+            config=types.GenerateContentConfig(
+                # Aumenta el timeout si el análisis es largo
+                timeout=60 # 60 segundos para evitar que la llamada falle
+            )
+        )
+        
+        # Eliminar el archivo temporal después del análisis
+        if 'file_part' in locals():
+            client.files.delete(name=file_part.name)
+            os.remove(file_path) # Eliminar también el archivo local anonimizado
+
+        return response.text
+
     except Exception as e:
-        return {"error": str(e)}
+        print(f"FATAL ERROR en analyze_case: {str(e)}")
+        # Propaga el error para que el webhook marque el caso como "error"
+        raise Exception(f"Fallo en la comunicación con la IA: {str(e)}")
