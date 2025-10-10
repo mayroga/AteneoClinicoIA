@@ -2,18 +2,19 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html
-
-# =================================================================
-# IMPORTACIONES AÑADIDAS/MODIFICADAS
-# =================================================================
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles 
-from fastapi.responses import HTMLResponse 
+import os
 
 # Importa tus routers
 from routes.auth import router as auth_router
 from routes.volunteer import router as volunteer_router
 from routes.professional import router as professional_router
 from routes.admin import router as admin_router
+# =================================================================
+# IMPORTACIÓN DEL NUEVO ROUTER DE STRIPE WEBHOOK
+from routes.stripe_webhook import router as stripe_webhook_router
+# =================================================================
 from database import init_db
 from config import APP_NAME
 
@@ -21,8 +22,7 @@ from config import APP_NAME
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Función que se ejecuta cuando la aplicación se inicia para preparar recursos
-    como la conexión a la base de datos.
+    Función que se ejecuta cuando la aplicación se inicia para preparar la base de datos.
     """
     print("Initializing Database...")
     init_db()
@@ -39,15 +39,15 @@ app = FastAPI(
 )
 
 # =================================================================
-# CONFIGURACIÓN DE ARCHIVOS ESTÁTICOS (CRUCIAL PARA IMÁGENES/CSS)
+# CONFIGURACIÓN DE ARCHIVOS ESTÁTICOS (PARA IMÁGENES/CSS/JS)
+# CRUCIAL para que cargue tu frontend.
 # =================================================================
-# Mapea la carpeta 'static' del proyecto al path URL '/static', 
-# permitiendo que el navegador cargue tus recursos.
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Configuración de CORS
 origins = [
     "https://ateneoclinicoia.onrender.com",
+    # Añade cualquier otro dominio que necesites
 ]
 
 app.add_middleware(
@@ -63,10 +63,9 @@ app.add_middleware(
 # =================================================================
 @app.get("/", tags=["Root"], response_class=HTMLResponse)
 async def serve_frontend():
-    """Sirve el archivo HTML principal de la aplicación."""
+    """Sirve el archivo HTML principal de la aplicación para el frontend."""
     
-    # Asegúrate de que esta ruta apunte correctamente a tu archivo HTML.
-    # Asumimos que 'index.html' está en la carpeta raíz.
+    # CRUCIAL: Asegúrate de que tu 'index.html' está en la carpeta raíz.
     html_file_path = "index.html" 
 
     try:
@@ -74,11 +73,10 @@ async def serve_frontend():
             html_content = f.read()
         return HTMLResponse(content=html_content)
     except FileNotFoundError:
-        # Si el archivo HTML no se encuentra, muestra un error en el navegador.
-        return HTMLResponse(content="<h1>Error: Archivo index.html no encontrado.</h1>", status_code=500)
+        return HTMLResponse(content="<h1>Error: Archivo index.html no encontrado en la ruta de la aplicación.</h1>", status_code=500)
 
 
-# <<--- RUTA PERSONALIZADA PARA REDOC --- >>
+# <<--- RUTAS DE DOCUMENTACIÓN --- >>
 @app.get("/redoc", include_in_schema=False)
 async def redoc_html():
     """Sirve la página HTML de Redoc."""
@@ -87,7 +85,6 @@ async def redoc_html():
         title=app.title + " - Redoc"
     )
 
-# <<--- RUTA PARA EL openapi.json QUE USA LA DOCUMENTACIÓN --- >>
 @app.get(app.openapi_url, include_in_schema=False)
 async def get_open_api_endpoint():
     from fastapi.openapi.utils import get_openapi
@@ -97,8 +94,12 @@ async def get_open_api_endpoint():
         routes=app.routes,
     )
 
-# Incluir routers
+# =================================================================
+# INCLUSIÓN DE ROUTERS
+# =================================================================
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 app.include_router(volunteer_router, prefix="/volunteer", tags=["Volunteer"])
 app.include_router(professional_router, prefix="/professional", tags=["Professional"])
 app.include_router(admin_router, prefix="/admin", tags=["Admin"])
+# ¡Añade el router de Webhook!
+app.include_router(stripe_webhook_router, prefix="/stripe", tags=["Stripe Webhook"])
