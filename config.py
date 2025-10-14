@@ -22,8 +22,14 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # URL de la aplicación (CRUCIAL para los redireccionamientos de Stripe)
-# Lee la variable que definiste en Render, con un respaldo local.
 RENDER_APP_URL = os.getenv("RENDER_APP_URL", "http://localhost:8000")
 
 # Otros ajustes (ej. timeout para llamadas a IA)
-AI_TIMEOUT_SECONDS = int(os.getenv("AI_TIMEOUT_SECONDS", 60)) # Aumentado a 60s
+AI_TIMEOUT_SECONDS = int(os.getenv("AI_TIMEOUT_SECONDS", 60)) 
+
+# =================================================================
+# CONFIGURACIÓN JWT
+# =================================================================
+SECRET_KEY = os.getenv("SECRET_KEY") # Clave secreta para firmar tokens
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # Token válido por 24 horas
