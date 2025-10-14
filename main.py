@@ -31,7 +31,8 @@ professional_router = APIRouter()
 # -----------------------------------------------
 
 # 💡 Cliente Gemini
-import google.generativeai as genai # Asumiendo que es la importación correcta
+# CORRECCIÓN CLAVE: Usamos la sintaxis del SDK moderno para evitar ModuleNotFound.
+from google import genai 
 
 # --- Inicialización de Clientes y Variables ---
 GEMINI_MODEL = "gemini-2.5-flash" 
@@ -53,8 +54,7 @@ if GEMINI_API_KEY:
         gemini_client = genai.Client() 
         print("Cliente Gemini inicializado exitosamente.")
     except Exception as e:
-        # El error original 'has no attribute Client' se lanzó aquí.
-        # Al usar configure/Client() en dos pasos, debería resolverse.
+        # Esto capturará cualquier error, incluyendo si genai.configure o genai.Client no existe
         print(f"Error al inicializar cliente Gemini: {e}")
         gemini_client = None
 else:
