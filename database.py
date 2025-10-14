@@ -1,8 +1,9 @@
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import Session
 from config import DATABASE_URL
-# Eliminado: import models # Se mueve dentro de init_db para evitar circular imports
+from models import Case
 
 # Motor de la base de datos
 # pool_pre_ping=True ayuda a asegurarse de que la conexión es válida
@@ -11,35 +12,41 @@ engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 # Sesión de conexión
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Base para modelos
+# Base para modelos (declarative_base DEBE estar aquí)
 Base = declarative_base()
 
-# --- FUNCIÓN CORREGIDA PARA INICIALIZAR LA BASE DE DATOS ---
+# --- FUNCIÓN PARA INICIALIZAR LA BASE DE DATOS ---
 def init_db():
     """
     Crea las tablas de la base de datos a partir de los modelos
-    que heredan de Base, asegurando que todos los modelos han sido cargados.
+    que heredan de Base.
     """
     try:
-        # Importamos los modelos justo antes de usarlos. Esto rompe la dependencia circular
-        # porque la importación solo ocurre cuando se llama a esta función (en el lifespan),
-        # y no cuando Python carga el módulo 'database'.
-        import models 
+        # Importamos models aquí para evitar dependencia circular
+        import models
     except ImportError:
-        # Esto es solo si el archivo models.py no existe o está mal nombrado
-        print("Warning: Could not import models. Check file name and location.")
+        print("Advertencia: No se pudieron importar los modelos. Comprueba el archivo models.py.")
         pass
 
-    print("Attempting to create database tables...")
+    print("Intentando crear tablas de base de datos...")
+    # Llama a Base.metadata.create_all para crear todas las tablas definidas
     Base.metadata.create_all(bind=engine)
-    print("Database initialization successful.")
-# --------------------------------------------------------
+    print("Inicialización de base de datos exitosa.")
 
-# Dependencia para obtener sesión DB
+# --- Dependencia para obtener sesión DB ---
 def get_db():
     """Proporciona una sesión de base de datos para las dependencias de FastAPI."""
     db = SessionLocal()
     try:
+        # 'yield' devuelve la sesión y permite que el código que la usa se ejecute
         yield db
     finally:
+        # Se asegura de cerrar la sesión después de su uso
         db.close()
+
+# --- Funciones de Acceso a Datos (Añadidas para el Webhook) ---
+
+def get_case_by_id(db: Session, case_id: str) -> Case | None:
+    """Busca un caso clínico por su case_id (UUID o identificador único)."""
+    # Consulta la tabla Case filtrando por el ID
+    return db.query(Case).filter(Case.id == case_id).first()
