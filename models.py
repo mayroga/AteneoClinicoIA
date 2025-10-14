@@ -1,59 +1,61 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, func, Text
-from sqlalchemy.dialects.postgresql import UUID
-import uuid
-from database import Base # Importamos la base declarativa
-from typing import Optional
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Float
+from sqlalchemy.orm import relationship
+from datetime import datetime
+from database import Base
 
 # =================================================================
-# 1. Modelo User (Para Autenticación JWT)
+# Usuarios (voluntarios y profesionales)
 # =================================================================
-
 class User(Base):
-    """Modelo para almacenar la información de los usuarios."""
     __tablename__ = "users"
 
-    # ID primario, usando UUID para seguridad
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
-    is_active = Column(Boolean, default=True)
-    
-    # Opcional: Rol o nombre
     full_name = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    is_admin = Column(Boolean, default=False)
+    role = Column(String, nullable=False)  # volunteer, clinician
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Opcional: Fecha de creación
-    created_at = Column(DateTime, server_default=func.now())
-    
-    # Método de representación para depuración
-    def __repr__(self):
-        return f"<User(id='{self.id}', email='{self.email}')>"
+    cases = relationship("Case", back_populates="owner")
+    # assigned_cases = relationship("Case", foreign_keys='Case.assigned_to_id', viewonly=True)
 
 # =================================================================
-# 2. Modelo Case (Para Casos Clínicos y Stripe)
+# Tabla para definir los planes de suscripción para profesionales
 # =================================================================
+class ProfessionalLevel(Base):
+    __tablename__ = "professional_levels"
 
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False) # E.g., "Nivel 1 Básico"
+    price_id = Column(String, unique=True, nullable=False) # ID del producto en Stripe para facturación
+    monthly_fee = Column(Float, nullable=False) # Cuota mensual en USD
+    features = Column(Text, nullable=True) # Descripción de las características del plan
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+# =================================================================
+# Casos clínicos (Actualizado)
+# =================================================================
 class Case(Base):
-    """Modelo para almacenar los casos clínicos."""
     __tablename__ = "cases"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), nullable=False) # Se relaciona con el usuario que lo subió
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    level = Column(String, default="basic")  # basic, medium, advanced
+    status = Column(String, default="pending")  # pending, in_progress, completed
     
-    # Campo para la lógica del pago y Stripe
-    stripe_session_id = Column(String, unique=True, index=True, nullable=True) # ID de la sesión de Stripe
-    is_paid = Column(Boolean, default=False) # Indica si el pago se ha completado
+    # 🔑 CAMPOS AÑADIDOS PARA STRIPE Y CONSENTIMIENTO 🔑
+    stripe_session_id = Column(String, unique=True, index=True, nullable=True)
+    is_paid = Column(Boolean, default=False)
+    has_legal_consent = Column(Boolean, default=False)
+    # --------------------------------------------------
     
-    # Campos del caso
-    description = Column(Text, nullable=False)
-    file_path = Column(String, nullable=True) # Ruta del archivo adjunto (e.g., PDF, imagen)
-    ai_result = Column(Text, nullable=True) # El resultado del análisis de la IA
-    
-    # El campo de consentimiento legal (como se solicitó)
-    has_legal_consent = Column(Boolean, default=False) 
-    
-    # Campos de estado y tiempo
-    is_processed = Column(Boolean, default=False) # Indica si el caso ha sido procesado por la IA
-    created_at = Column(DateTime, server_default=func.now())
+    volunteer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assigned_to_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
-    def __repr__(self):
-        return f"<Case(id='{self.id}', paid={self.is_paid}, processed={self.is_processed})>"
+    owner = relationship("User", foreign_keys=[volunteer_id], back_populates="cases")
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
