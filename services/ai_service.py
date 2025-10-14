@@ -1,6 +1,6 @@
 import os
-# Importamos la librería con la ruta del módulo correcta para el paquete 'google-genai'
-from google import genai 
+# Importamos la librería con el nombre del módulo del SDK moderno (google-genai)
+import google.genai as genai 
 from config import GEMINI_API_KEY, AI_TIMEOUT_SECONDS
 
 # =================================================================
@@ -14,14 +14,12 @@ try:
     else:
         print("ADVERTENCIA: GEMINI_API_KEY no encontrada. El servicio de IA no funcionará.")
 except Exception as e:
-    # Este bloque ya no debería lanzar el error 'has no attribute Client'
     print(f"ADVERTENCIA: Fallo en la configuración de Gemini: {e}")
 
 # Creamos una función auxiliar para obtener el cliente, ya configurado.
 def get_ai_client():
     # Usamos genai.Client() sin argumentos para usar la configuración global.
     try:
-        # Nota: La instancia de Client debe estar disponible ahora
         return genai.Client()
     except Exception as e:
         # Esto atrapará errores si la configuración falló
@@ -50,7 +48,7 @@ def analyze_case(description: str, file_path: str = None) -> str:
             prompt_parts.append(file_part)
         
         # 2. Llamar al modelo de IA
-        # La configuración del tiempo de espera ahora se pasa al método generate_content directamente
+        # Usamos 'request_options' para pasar el timeout, ya que 'config' está obsoleto.
         response = client.models.generate_content(
             model=model,
             contents=prompt_parts,
