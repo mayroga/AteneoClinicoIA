@@ -46,6 +46,7 @@ if STRIPE_SECRET_KEY:
 gemini_client = None
 if GEMINI_API_KEY:
     try:
+        # La inicialización es correcta; el error es una dependencia faltante/incorrecta.
         gemini_client = genai.Client(api_key=GEMINI_API_KEY)
         print("Cliente Gemini inicializado exitosamente.")
     except Exception as e:
@@ -100,8 +101,8 @@ app.add_middleware(
 # ==============================================================
 # CONFIGURACIÓN DE ARCHIVOS ESTÁTICOS Y RUTA RAÍZ
 # ==============================================================
-# Se asume que tienes un directorio 'static' para servir HTML, CSS, JS del frontend.
-# app.mount("/static", StaticFiles(directory="static"), name="static")
+# 💡 AJUSTE: Montamos el directorio 'static' para servir CSS/JS/Imágenes del frontend.
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/", tags=["Root"], response_class=HTMLResponse)
 async def serve_frontend():
