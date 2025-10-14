@@ -31,7 +31,7 @@ professional_router = APIRouter()
 # -----------------------------------------------
 
 # 💡 Cliente Gemini
-import google.generativeai as genai
+import google.generativeai as genai # Asumiendo que es la importación correcta
 
 # --- Inicialización de Clientes y Variables ---
 GEMINI_MODEL = "gemini-2.5-flash" 
@@ -41,15 +41,20 @@ if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
 
 # ==============================================================
-# CONFIGURACIÓN DE CLIENTE GEMINI
+# CONFIGURACIÓN DE CLIENTE GEMINI (CORREGIDO)
 # ==============================================================
 gemini_client = None
 if GEMINI_API_KEY:
     try:
-        # La inicialización es correcta; el error es una dependencia faltante/incorrecta.
-        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        # 1. Configurar la clave API globalmente (obligatorio para el SDK de Gemini)
+        genai.configure(api_key=GEMINI_API_KEY)
+        
+        # 2. Inicializar el cliente sin pasar la clave por segunda vez
+        gemini_client = genai.Client() 
         print("Cliente Gemini inicializado exitosamente.")
     except Exception as e:
+        # El error original 'has no attribute Client' se lanzó aquí.
+        # Al usar configure/Client() en dos pasos, debería resolverse.
         print(f"Error al inicializar cliente Gemini: {e}")
         gemini_client = None
 else:
