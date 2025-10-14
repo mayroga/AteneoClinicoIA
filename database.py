@@ -3,7 +3,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session
 from config import DATABASE_URL
-from models import Case
+# >>> CORRECCIÓN: Eliminamos 'from models import Case' de aquí
+# Esto rompe la dependencia circular.
 
 # Motor de la base de datos
 # pool_pre_ping=True ayuda a asegurarse de que la conexión es válida
@@ -22,14 +23,13 @@ def init_db():
     que heredan de Base.
     """
     try:
-        # Importamos models aquí para evitar dependencia circular
-        import models
+        # Importamos models aquí para asegurar que las clases se carguen
+        import models 
     except ImportError:
         print("Advertencia: No se pudieron importar los modelos. Comprueba el archivo models.py.")
         pass
 
     print("Intentando crear tablas de base de datos...")
-    # Llama a Base.metadata.create_all para crear todas las tablas definidas
     Base.metadata.create_all(bind=engine)
     print("Inicialización de base de datos exitosa.")
 
@@ -38,15 +38,20 @@ def get_db():
     """Proporciona una sesión de base de datos para las dependencias de FastAPI."""
     db = SessionLocal()
     try:
-        # 'yield' devuelve la sesión y permite que el código que la usa se ejecute
         yield db
     finally:
-        # Se asegura de cerrar la sesión después de su uso
         db.close()
 
 # --- Funciones de Acceso a Datos (Añadidas para el Webhook) ---
 
-def get_case_by_id(db: Session, case_id: str) -> Case | None:
-    """Busca un caso clínico por su case_id (UUID o identificador único)."""
+def get_case_by_id(db: Session, case_id: str):
+    """
+    Busca un caso clínico por su case_id (UUID o identificador único).
+    NOTA: La importación de Case se realiza dentro de la función para romper el ciclo de dependencia.
+    """
+    # >>> CORRECCIÓN: Importamos Case justo antes de usarlo.
+    from models import Case 
+    # Ya no se usa la anotación Case | None en la cabecera
+    
     # Consulta la tabla Case filtrando por el ID
     return db.query(Case).filter(Case.id == case_id).first()
