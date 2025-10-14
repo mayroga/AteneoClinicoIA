@@ -3,7 +3,9 @@ import stripe
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from google import genai
+from google import genai as google_genai 
+# O, la forma más común, directamente desde el paquete:
+from google.generativeai import Client 
 from dotenv import load_dotenv
 
 # Cargar variables de entorno (útil para desarrollo local, Render las inyecta en producción)
