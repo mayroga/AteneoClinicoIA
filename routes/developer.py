@@ -1,66 +1,99 @@
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Header
+from sqlalchemy.orm import Session
+from database import get_db
+from models import Case, User
+from services.ai_service import analyze_case
+from services.anonymizer import anonymize_file
+from config import ADMIN_BYPASS_KEY
+import datetime
+import uuid
 import os
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
-from typing import Annotated
-from services.ai_service import analyze_case # Importamos la función de análisis
 
-router = APIRouter(prefix="/developer", tags=["Developer/Admin"])
+router = APIRouter(prefix="/dev", tags=["developer"], include_in_schema=False)
 
-# =================================================================
-# 1. RUTA DE PRUEBA DE ANÁLISIS DE CASO (SIN RESTRICCIÓN DE PAGO)
-# =================================================================
-@router.post("/analizar-caso-ilimitado")
-async def developer_analyze_case(
-    description: Annotated[str, File(description="Descripción del caso clínico.")],
-    file: Annotated[UploadFile | None, File(description="Archivo adjunto (imagen, pdf, etc.).")] = None,
-    # 💡 Lógica pendiente: Depende de la clave de bypass de administrador si es necesario
+# Usamos un ID fijo (1) para simular el usuario admin/dev que usa esta ruta
+# Asegúrate de que el usuario con ID 1 exista en tu base de datos de desarrollo.
+DEV_USER_ID = 1
+
+@router.post("/process-case-free")
+async def process_case_free(
+    description: str = Form(...),
+    has_legal_consent: bool = Form(True), # Asumimos consentimiento para desarrollo
+    file: UploadFile = File(None),
+    db: Session = Depends(get_db),
+    # Requiere la clave de administrador para acceder a este endpoint
+    x_admin_key: str = Header(...)
 ):
     """
-    Permite a los administradores o desarrolladores analizar un caso clínico
-    con la IA sin pasar por el flujo de pago (ruta de prueba).
+    Endpoint de acceso ilimitado y gratuito para desarrolladores/administradores.
+    Procesa el caso inmediatamente con la IA, sin pasar por Stripe.
     """
-    file_path = None
     
-    try:
-        # 1. Guardar archivo temporalmente
-        if file:
-            # Usamos el nombre del archivo original para el guardado temporal
-            temp_dir = "temp_uploads"
-            os.makedirs(temp_dir, exist_ok=True)
-            file_path = os.path.join(temp_dir, file.filename)
-            
-            with open(file_path, "wb") as f:
-                content = await file.read()
-                f.write(content)
+    # 1. VERIFICACIÓN DE ACCESO DE ADMINISTRADOR (Clave saneada con .strip())
+    # Esto previene errores de espacios en blanco al copiar y pegar la clave.
+    if x_admin_key.strip() != ADMIN_BYPASS_KEY:
+        raise HTTPException(status_code=403, detail="Acceso denegado. Clave de administrador no válida.")
 
-        # 2. Llamar al servicio de análisis
-        analysis_result = analyze_case(description, file_path)
+    # 2. Asignar a un usuario DEV fijo
+    user = db.query(User).filter(User.id == DEV_USER_ID).first()
+    if not user:
+        raise HTTPException(status_code=500, detail=f"Usuario de desarrollo (ID {DEV_USER_ID}) no encontrado.")
+
+    file_path = None
+    ai_result = "PENDIENTE DE ANÁLISIS"
+
+    # 3. Manejo y Anonimización del Archivo
+    if file:
+        filename = f"{uuid.uuid4()}_{file.filename}"
+        temp_path = f"temp/{filename}"
+        os.makedirs("temp", exist_ok=True)
+        with open(temp_path, "wb") as f:
+            f.write(await file.read())
+        
+        file_path = anonymize_file(temp_path)
+    
+    case_title = description[:50] if description else f"Caso DEV {user.email}-{datetime.datetime.utcnow().timestamp()}"
+
+    # 4. Guardar Caso en DB
+    new_case = Case(
+        volunteer_id=DEV_USER_ID,
+        title=case_title,
+        description=description,
+        file_path=file_path,
+        status="processing", 
+        is_paid=True, # Acceso gratuito implica pago completado
+        has_legal_consent=has_legal_consent,
+        created_at=datetime.datetime.utcnow(),
+        stripe_session_id="DEV_BYPASS" # Marcador para indicar que no pasó por Stripe
+    )
+    db.add(new_case)
+    db.commit()
+    db.refresh(new_case)
+
+    # 5. Procesar el Caso Inmediatamente con la IA
+    try:
+        print(f"DEBUG: Ejecutando análisis de IA para caso {new_case.id} (DEV Bypass)")
+        ai_result = analyze_case(description, file_path)
+        
+        new_case.ai_result = ai_result
+        new_case.status = "completed"
+        db.commit()
         
         return {
-            "status": "success",
-            "case_description": description,
-            "analysis_result": analysis_result,
-            "file_processed": file.filename if file else "None"
+            "message": "Caso procesado con éxito (ACCESO GRATUITO ILIMITADO)",
+            "case_id": new_case.id,
+            "ai_result": ai_result,
+            "status": "completed"
         }
-
+        
     except Exception as e:
-        print(f"Error en la ruta /analizar-caso-ilimitado: {e}")
+        # 6. Manejo de Errores de la IA
+        print(f"ERROR IA: Fallo al analizar el caso de Dev {new_case.id}: {str(e)}")
+        new_case.status = "error"
+        new_case.ai_result = f"Error de procesamiento de IA: {str(e)}" 
+        db.commit()
+        
         raise HTTPException(
-            status_code=500,
-            detail=f"Fallo al procesar el caso con la IA: {str(e)}"
+            status_code=500, 
+            detail=f"Error al analizar el caso (Dev Bypass): {str(e)}"
         )
-    finally:
-        # 3. La lógica de limpieza del archivo temporal está en ai_service.py,
-        # pero para mayor seguridad, la repetimos si el servicio no la hizo.
-        if file_path and os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except Exception as e:
-                print(f"Advertencia: No se pudo eliminar el archivo local en el router: {e}")
-
-# =================================================================
-# 2. RUTA DE PRUEBA DE STATUS
-# =================================================================
-@router.get("/status")
-def developer_status():
-    """Ruta de prueba simple para verificar que el router está en línea."""
-    return {"message": "Developer/Admin router en línea."}
