@@ -1,30 +1,35 @@
 import os
-# Importamos la librería con el nombre del módulo del SDK moderno (google-genai)
 import google.genai as genai 
 from config import GEMINI_API_KEY, AI_TIMEOUT_SECONDS
 
 # =================================================================
-# INICIALIZACIÓN ROBUSTA DE GEMINI
+# INICIALIZACIÓN ROBUSTA DE GEMINI (ACTUALIZADA)
 # =================================================================
-# Intentamos configurar el cliente inmediatamente usando la clave de entorno.
-try:
-    if GEMINI_API_KEY:
-        genai.configure(api_key=GEMINI_API_KEY)
-        print("INFO: Cliente de Gemini configurado con éxito.")
-    else:
-        print("ADVERTENCIA: GEMINI_API_KEY no encontrada. El servicio de IA no funcionará.")
-except Exception as e:
-    print(f"ADVERTENCIA: Fallo en la configuración de Gemini: {e}")
+# Se elimina el bloque try/except con genai.configure().
+# La configuración ahora se hace directamente al crear el cliente.
 
-# Creamos una función auxiliar para obtener el cliente, ya configurado.
+if not GEMINI_API_KEY:
+    print("ADVERTENCIA: GEMINI_API_KEY no encontrada. El servicio de IA no funcionará.")
+
 def get_ai_client():
-    # Usamos genai.Client() sin argumentos para usar la configuración global.
+    """
+    Crea y devuelve una instancia del cliente de Gemini, inyectando la clave de API.
+    Este es el método robusto para el nuevo SDK (google-genai).
+    """
+    if not GEMINI_API_KEY:
+        raise ConnectionError("GEMINI_API_KEY no está configurada. No se puede iniciar el cliente de Gemini.")
+        
     try:
-        return genai.Client()
+        # Se pasa la clave de API directamente al constructor del cliente.
+        # Esto reemplaza la necesidad de la configuración global (genai.configure).
+        return genai.Client(api_key=GEMINI_API_KEY)
     except Exception as e:
-        # Esto atrapará errores si la configuración falló
-        raise ConnectionError(f"El cliente de Gemini no se pudo obtener. Revise su clave: {e}")
+        # Esto atrapará errores si la inicialización del cliente falla por otras razones
+        raise ConnectionError(f"El cliente de Gemini no se pudo inicializar. Revise la clave de API y dependencias: {e}")
 
+# =================================================================
+# FUNCIÓN DE ANÁLISIS
+# =================================================================
 
 def analyze_case(description: str, file_path: str = None) -> str:
     """
@@ -48,11 +53,11 @@ def analyze_case(description: str, file_path: str = None) -> str:
             prompt_parts.append(file_part)
         
         # 2. Llamar al modelo de IA
-        # Usamos 'request_options' para pasar el timeout, ya que 'config' está obsoleto.
+        # Se usa 'request_options' para pasar el timeout, ya que 'config' está obsoleto.
         response = client.models.generate_content(
             model=model,
             contents=prompt_parts,
-            request_options={"timeout": AI_TIMEOUT_SECONDS} 
+            request_options={"timeout": AI_TIMEOUT_SECONDS}  
         )
         
         return response.text
@@ -64,6 +69,7 @@ def analyze_case(description: str, file_path: str = None) -> str:
         # 3. Limpieza
         if file_part:
             try:
+                # El cliente.files.delete requiere el objeto File original o su 'name'
                 client.files.delete(name=file_part.name)
             except Exception as e:
                 print(f"Advertencia: No se pudo eliminar el archivo de Gemini: {e}")
