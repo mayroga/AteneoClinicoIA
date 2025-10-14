@@ -7,7 +7,8 @@ from database import get_db
 from models import Case
 from utils import get_current_user
 from config import GEMINI_API_KEY
-import google.generativeai as genai
+# 💡 CORRECCIÓN CLAVE: Usamos la importación explícita para el SDK de Gemini
+from google.genai import Client, configure 
 
 # =================================================================
 # CONFIGURACIÓN DEL ROUTER
@@ -17,10 +18,12 @@ router = APIRouter(prefix="/developer", tags=["developer"])
 # La clave de Gemini se asume configurada en config.py
 if GEMINI_API_KEY:
     try:
-        # Inicialización del cliente Gemini para uso en la ruta
-        genai.configure(api_key=GEMINI_API_KEY)
-        gemini_client = genai.Client()
+        # Inicialización del cliente Gemini para uso en la ruta (corregido)
+        configure(api_key=GEMINI_API_KEY)
+        gemini_client = Client() # Usamos el constructor Client importado directamente
+        print("INFO: Cliente de Gemini configurado con éxito.")
     except Exception as e:
+        # Mantener el manejo de errores original
         print(f"Error al inicializar cliente Gemini en developer router: {e}")
         gemini_client = None
 else:
@@ -88,6 +91,7 @@ async def analyze_case_unlimited(
             "pasos a seguir. No te salgas de tu rol. Caso: " + input_data.case_description
         )
         
+        # Uso del cliente correctamente inicializado
         response = gemini_client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt
