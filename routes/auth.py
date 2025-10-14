@@ -49,6 +49,7 @@ def register(user: RegisterUser, db: Session = Depends(get_db)):
         email=user.email,
         hashed_password=hash_password(user.password),
         role=user.role,
+        # Nota: Asume que 'waiver_signed' existe en el modelo User
         waiver_signed=user.waiver_signed,
         created_at=datetime.datetime.utcnow()
     )
@@ -66,11 +67,10 @@ def login(user: LoginUser, db: Session = Depends(get_db)):
     if not db_user or not verify_password(user.password, db_user.hashed_password):
         raise HTTPException(status_code=401, detail="Correo o contraseña incorrectos.")
     
-    # Podrías generar aquí un token JWT si lo necesitaras para el frontend
     return {"message": "Login exitoso", "user_id": db_user.id, "role": db_user.role}
 
 # =================================================================
-# 3. RUTA DE LOGIN DE ADMINISTRADOR (¡RUTA CORREGIDA!)
+# 3. RUTA DE LOGIN DE ADMINISTRADOR (CORREGIDA)
 # =================================================================
 @router.post("/admin")
 def admin_login(
@@ -78,11 +78,11 @@ def admin_login(
     db: Session = Depends(get_db), 
     admin_secret_key: str = Header(None, alias="X-Admin-Key") # Captura el encabezado secreto
 ):
-    # Verificación de la clave de bypass de administrador (seguridad adicional)
-    if not admin_secret_key or admin_secret_key != ADMIN_BYPASS_KEY:
+    # 💡 CORRECCIÓN: Usamos .strip() para sanear la clave de administrador
+    if not admin_secret_key or admin_secret_key.strip() != ADMIN_BYPASS_KEY:
         raise HTTPException(status_code=403, detail="Clave de administrador incorrecta o faltante.")
 
-    # Verificación de credenciales estándar (opcional si la clave secreta es suficiente)
+    # Verificación de credenciales estándar 
     db_user = db.query(User).filter(User.email == user.email, User.role == "admin").first()
     if not db_user or not verify_password(user.password, db_user.hashed_password):
         raise HTTPException(status_code=401, detail="Credenciales de Administrador incorrectas.")
@@ -92,7 +92,6 @@ def admin_login(
         "message": "Acceso de Administrador otorgado", 
         "user_id": db_user.id, 
         "role": "admin",
-        # Aquí se podría devolver un token de sesión de admin más potente
     }
 
 # =================================================================
