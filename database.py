@@ -1,59 +1,81 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, func, Text
-from sqlalchemy.dialects.postgresql import UUID
-import uuid
-from database import Base # Importamos la base declarativa
-from typing import Optional
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import Session
+from typing import Optional 
+from config import DATABASE_URL
 
-# =================================================================
-# 1. Modelo User (Para Autenticación JWT)
-# =================================================================
+# Motor de la base de datos
+# pool_pre_ping=True ayuda a asegurarse de que la conexión es válida
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
-class User(Base):
-    """Modelo para almacenar la información de los usuarios."""
-    __tablename__ = "users"
+# Sesión de conexión
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-    # ID primario, usando UUID para seguridad
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
-    is_active = Column(Boolean, default=True)
-    
-    # Opcional: Rol o nombre
-    full_name = Column(String, nullable=True)
+# Base para modelos (declarative_base DEBE estar aquí)
+Base = declarative_base()
 
-    # Opcional: Fecha de creación
-    created_at = Column(DateTime, server_default=func.now())
-    
-    # Método de representación para depuración
-    def __repr__(self):
-        return f"<User(id='{self.id}', email='{self.email}')>"
+# ------------------------------------------------------------------
+# --- FUNCIÓN PARA INICIALIZAR LA BASE DE DATOS ---
+# ------------------------------------------------------------------
+def init_db():
+    """
+    Crea las tablas de la base de datos a partir de los modelos
+    que heredan de Base.
+    """
+    try:
+        # Importamos models aquí para asegurar que las clases se carguen
+        import models 
+    except ImportError:
+        print("Advertencia: No se pudieron importar los modelos. Comprueba el archivo models.py.")
+        pass
 
-# =================================================================
-# 2. Modelo Case (Para Casos Clínicos y Stripe)
-# =================================================================
+    print("Intentando crear tablas de base de datos...")
+    Base.metadata.create_all(bind=engine)
+    print("Inicialización de base de datos exitosa.")
 
-class Case(Base):
-    """Modelo para almacenar los casos clínicos."""
-    __tablename__ = "cases"
+# ------------------------------------------------------------------
+# --- Dependencia para obtener sesión DB ---
+# ------------------------------------------------------------------
+def get_db():
+    """Proporciona una sesión de base de datos para las dependencias de FastAPI."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), nullable=False) # Se relaciona con el usuario que lo subió
-    
-    # Campo para la lógica del pago y Stripe
-    stripe_session_id = Column(String, unique=True, index=True, nullable=True) # ID de la sesión de Stripe
-    is_paid = Column(Boolean, default=False) # Indica si el pago se ha completado
-    
-    # Campos del caso
-    description = Column(Text, nullable=False)
-    file_path = Column(String, nullable=True) # Ruta del archivo adjunto (e.g., PDF, imagen)
-    ai_result = Column(Text, nullable=True) # El resultado del análisis de la IA
-    
-    # El campo de consentimiento legal (como se solicitó)
-    has_legal_consent = Column(Boolean, default=False) 
-    
-    # Campos de estado y tiempo
-    is_processed = Column(Boolean, default=False) # Indica si el caso ha sido procesado por la IA
-    created_at = Column(DateTime, server_default=func.now())
+# ------------------------------------------------------------------
+# --- Funciones de Acceso a Datos (Añadidas para el Webhook y Auth) ---
+# ------------------------------------------------------------------
 
-    def __repr__(self):
-        return f"<Case(id='{self.id}', paid={self.is_paid}, processed={self.is_processed})>"
+def get_case_by_id(db: Session, case_id: str):
+    """
+    Busca un caso clínico por su case_id (UUID o identificador único).
+    """
+    # Importamos aquí para romper la dependencia circular
+    from models import Case 
+    return db.query(Case).filter(Case.id == case_id).first()
+
+# 🔑 FUNCIÓN PARA EL DESBLOQUEO DE STRIPE
+def get_case_by_stripe_session_id(db: Session, session_id: str) -> Optional:
+    """
+    Busca un caso clínico por el ID de la sesión de Stripe.
+    Usada por el webhook para encontrar el caso después de un pago exitoso.
+    """
+    # Importamos aquí para romper la dependencia circular
+    from models import Case 
+    # Buscamos el primer caso que coincida con el ID de sesión
+    return db.query(Case).filter(Case.stripe_session_id == session_id).first()
+
+
+# 🔑 FUNCIÓN PARA EL DESBLOQUEO DE AUTH
+def get_user_by_id(db: Session, user_id: str) -> Optional:
+    """
+    Busca un usuario por su ID.
+    Usada por la dependencia de autenticación (FastAPI Security/JWT).
+    """
+    # Importamos aquí para romper la dependencia circular
+    from models import User 
+    # Buscamos el primer usuario que coincida con el ID
+    return db.query(User).filter(User.id == user_id).first()
