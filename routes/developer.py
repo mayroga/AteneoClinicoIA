@@ -1,77 +1,66 @@
 import os
-# Importación del SDK moderno: usamos 'from google import genai' para asegurar
-# que funcione con la estructura del paquete 'google-genai'
-from google import genai 
-from config import GEMINI_API_KEY, AI_TIMEOUT_SECONDS
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
+from typing import Annotated
+from services.ai_service import analyze_case # Importamos la función de análisis
+
+router = APIRouter(prefix="/developer", tags=["Developer/Admin"])
 
 # =================================================================
-# INICIALIZACIÓN ROBUSTA DE GEMINI
+# 1. RUTA DE PRUEBA DE ANÁLISIS DE CASO (SIN RESTRICCIÓN DE PAGO)
 # =================================================================
-# Intentamos configurar el cliente inmediatamente usando la clave de entorno.
-try:
-    if GEMINI_API_KEY:
-        # 'configure' se llama directamente desde el módulo 'genai'
-        genai.configure(api_key=GEMINI_API_KEY)
-        print("INFO: Cliente de Gemini configurado con éxito.")
-    else:
-        print("ADVERTENCIA: GEMINI_API_KEY no encontrada. El servicio de IA no funcionará.")
-except Exception as e:
-    print(f"ADVERTENCIA: Fallo en la configuración de Gemini: {e}")
-
-# Creamos una función auxiliar para obtener el cliente, ya configurado.
-def get_ai_client():
-    # Usamos genai.Client() sin argumentos para usar la configuración global.
-    try:
-        # 'Client' se llama directamente desde el módulo 'genai'
-        return genai.Client()
-    except Exception as e:
-        # Esto atrapará errores si la configuración falló
-        raise ConnectionError(f"El cliente de Gemini no se pudo obtener. Revise su clave: {e}")
-
-
-def analyze_case(description: str, file_path: str = None) -> str:
+@router.post("/analizar-caso-ilimitado")
+async def developer_analyze_case(
+    description: Annotated[str, File(description="Descripción del caso clínico.")],
+    file: Annotated[UploadFile | None, File(description="Archivo adjunto (imagen, pdf, etc.).")] = None,
+    # 💡 Lógica pendiente: Depende de la clave de bypass de administrador si es necesario
+):
     """
-    Ejecuta el análisis multimodal de un caso clínico usando Gemini.
+    Permite a los administradores o desarrolladores analizar un caso clínico
+    con la IA sin pasar por el flujo de pago (ruta de prueba).
     """
-    client = get_ai_client()
-    model = 'gemini-2.5-flash'
-    prompt_parts = [
-        "Eres un asistente de análisis clínico. Analiza el siguiente caso de voluntario "
-        "y proporciona un resumen de las posibles vías de investigación y recomendaciones de acción "
-        "en base a la descripción y el archivo adjunto (si existe). Sé conciso y profesional. "
-        f"Descripción del caso: {description}"
-    ]
+    file_path = None
     
-    file_part = None
-
     try:
-        # 1. Subir y añadir archivo si existe
-        if file_path and os.path.exists(file_path):
-            file_part = client.files.upload(file=file_path)
-            prompt_parts.append(file_part)
+        # 1. Guardar archivo temporalmente
+        if file:
+            # Usamos el nombre del archivo original para el guardado temporal
+            temp_dir = "temp_uploads"
+            os.makedirs(temp_dir, exist_ok=True)
+            file_path = os.path.join(temp_dir, file.filename)
+            
+            with open(file_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+
+        # 2. Llamar al servicio de análisis
+        analysis_result = analyze_case(description, file_path)
         
-        # 2. Llamar al modelo de IA
-        # Usamos 'request_options' para pasar el timeout, ya que 'config' está obsoleto.
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt_parts,
-            request_options={"timeout": AI_TIMEOUT_SECONDS} 
-        )
-        
-        return response.text
+        return {
+            "status": "success",
+            "case_description": description,
+            "analysis_result": analysis_result,
+            "file_processed": file.filename if file else "None"
+        }
 
     except Exception as e:
-        raise Exception(f"Fallo en la comunicación con la IA: {str(e)}")
-
+        print(f"Error en la ruta /analizar-caso-ilimitado: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Fallo al procesar el caso con la IA: {str(e)}"
+        )
     finally:
-        # 3. Limpieza
-        if file_part:
-            try:
-                client.files.delete(name=file_part.name)
-            except Exception as e:
-                print(f"Advertencia: No se pudo eliminar el archivo de Gemini: {e}")
+        # 3. La lógica de limpieza del archivo temporal está en ai_service.py,
+        # pero para mayor seguridad, la repetimos si el servicio no la hizo.
         if file_path and os.path.exists(file_path):
             try:
                 os.remove(file_path)
             except Exception as e:
-                print(f"Advertencia: No se pudo eliminar el archivo local: {e}")
+                print(f"Advertencia: No se pudo eliminar el archivo local en el router: {e}")
+
+# =================================================================
+# 2. RUTA DE PRUEBA DE STATUS
+# =================================================================
+@router.get("/status")
+def developer_status():
+    """Ruta de prueba simple para verificar que el router está en línea."""
+    return {"message": "Developer/Admin router en línea."}
