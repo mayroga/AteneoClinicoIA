@@ -31,8 +31,8 @@ professional_router = APIRouter()
 # -----------------------------------------------
 
 # 💡 Cliente Gemini
-# CORRECCIÓN CLAVE: Usamos la sintaxis del SDK moderno para evitar ModuleNotFound.
-from google import genai 
+# Usamos el import simple, ya que el SDK maneja la inicialización a través del Cliente.
+import google.genai as genai 
 
 # --- Inicialización de Clientes y Variables ---
 GEMINI_MODEL = "gemini-2.5-flash" 
@@ -47,14 +47,12 @@ if STRIPE_SECRET_KEY:
 gemini_client = None
 if GEMINI_API_KEY:
     try:
-        # 1. Configurar la clave API globalmente (obligatorio para el SDK de Gemini)
-        genai.configure(api_key=GEMINI_API_KEY)
-        
-        # 2. Inicializar el cliente sin pasar la clave por segunda vez
-        gemini_client = genai.Client() 
+        # CORRECCIÓN CLAVE: Inicializar Client() directamente con la clave, 
+        # eliminando la llamada a genai.configure()
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY) 
         print("Cliente Gemini inicializado exitosamente.")
     except Exception as e:
-        # Esto capturará cualquier error, incluyendo si genai.configure o genai.Client no existe
+        # El error 'has no attribute configure' desaparece con esta corrección.
         print(f"Error al inicializar cliente Gemini: {e}")
         gemini_client = None
 else:
@@ -190,8 +188,8 @@ async def stripe_webhook(request: Request):
                 return {"status": "error", "message": "Caso no encontrado"}
 
             if case.status != 'pending_payment':
-                 print(f"Advertencia: Caso ID {case_id} ya fue procesado.")
-                 return {"status": "ignored", "message": "Caso ya procesado"}
+                print(f"Advertencia: Caso ID {case_id} ya fue procesado.")
+                return {"status": "ignored", "message": "Caso ya procesado"}
 
             # 1. Marcar como pagado
             case.status = 'paid'
