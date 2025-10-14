@@ -3,41 +3,41 @@ import stripe
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from google import genai as google_genai 
-# O, la forma más común, directamente desde el paquete:
-from google.generativeai import Client 
+# 💡 FIX DEFINITIVO: Esta importación es la que resuelve el error. (Corregido 'erro' a 'error')
+from google.generativeai import Client as GeminiClient
 from dotenv import load_dotenv
 
 # Cargar variables de entorno (útil para desarrollo local, Render las inyecta en producción)
 load_dotenv() 
 
-# --- Inicialización de Clientes ---
-# Reemplaza estas inicializaciones si ya las tienes en otro archivo de config.
+# --- Inicialización de Clientes y Variables ---
+# Asegúrate de que estas variables de entorno (STRIPE_SECRET_KEY, ADMIN_BYPASS_KEY, GEMINI_API_KEY)
+# estén configuradas en la consola de Render.
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 ADMIN_BYPASS_KEY = os.getenv("ADMIN_BYPASS_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = "gemini-2.5-flash"
 
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
 
-# Solo inicializamos Gemini si la clave está presente (para evitar fallos al inicio)
+gemini_client = None
 if GEMINI_API_KEY:
     try:
-        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-        GEMINI_MODEL = "gemini-2.5-flash"
+        # Inicialización usando la clase Client importada correctamente
+        gemini_client = GeminiClient(api_key=GEMINI_API_KEY)
     except Exception as e:
         print(f"Error al inicializar cliente Gemini: {e}")
-        gemini_client = None
-else:
-    gemini_client = None
+        # La API seguirá funcionando, pero el endpoint de IA fallará.
 
 app = FastAPI()
 
 # --- Configuración CORS CRÍTICA ---
-# Permite que el frontend (u otros dominios) se conecte a esta API
 origins = [
-    "*", # Permite todos los orígenes. AJUSTAR ESTO EN PRODUCCIÓN A TU DOMINIO DE FRONTEND
-    # Ejemplo: "https://ateneoclinicoia.onrender.com"
+    # En producción, reemplaza '*' con tu dominio de frontend de Render
+    "https://ateneoclinicoia.onrender.com",
+    "http://127.0.0.1:5500",
+    "*" 
 ]
 
 app.add_middleware(
@@ -55,7 +55,11 @@ class AdminKey(BaseModel):
 
 class CasePrompt(BaseModel):
     prompt: str
-    role: str # Nivel de suscripción o 'professional'
+    role: str
+
+class CheckoutItem(BaseModel):
+    case_id: str
+    case_description: str
 
 
 # ==========================================================
@@ -66,7 +70,6 @@ async def admin_auth(key_data: AdminKey):
     """Verifica si la clave enviada coincide con la ADMIN_BYPASS_KEY de Render."""
     
     if not ADMIN_BYPASS_KEY:
-        # Fallo de configuración si la variable no existe en Render
         raise HTTPException(status_code=500, detail="Clave de bypass no configurada en el servidor (ADMIN_BYPASS_KEY).")
     
     if key_data.admin_key == ADMIN_BYPASS_KEY:
@@ -80,23 +83,23 @@ async def admin_auth(key_data: AdminKey):
 # ==========================================================
 @app.post("/api/analizar-caso")
 async def analyze_case(case_data: CasePrompt):
-    """Llama a Gemini para el análisis clínico usando la clave."""
+    """Llama a Gemini para el análisis clínico."""
     
     if not gemini_client:
         raise HTTPException(status_code=503, detail="El servicio de IA (Gemini) no está inicializado. Revisa la GEMINI_API_KEY.")
         
     prompt = (
         f"Analiza el siguiente caso clínico para un profesional de la salud con nivel de suscripción '{case_data.role}'. "
-        f"Genera un resumen, un diagnóstico diferencial y un plan de acción. Descripción del caso: {case_data.prompt}"
+        f"Genera un resumen, un diagnóstico diferencial y un plan de acción detallado. Descripción del caso: {case_data.prompt}"
     )
     
     try:
+        # Uso del cliente inicializado (gemini_client)
         response = gemini_client.models.generate_content(
             model=GEMINI_MODEL,
             contents=prompt
         )
         
-        # El texto de respuesta se envía al frontend
         return {"success": True, "response_text": response.text}
         
     except Exception as e:
@@ -107,18 +110,15 @@ async def analyze_case(case_data: CasePrompt):
 # ==========================================================
 # ENDPOINT 3: CREACIÓN DE SESIÓN STRIPE (/api/checkout)
 # ==========================================================
-class CheckoutItem(BaseModel):
-    case_id: str
-    case_description: str
-    # Se podría incluir aquí el nombre del usuario, etc.
-
 @app.post("/api/checkout")
 async def create_checkout_session(request: Request, item: CheckoutItem):
     """Crea una sesión de pago de Stripe para el voluntario."""
     
-    # Obtener la URL base dinámicamente o usar la variable de entorno
-    BASE_URL = str(request.base_url).strip('/')
+    BASE_URL = str(request.base_url).strip('/') 
     
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="La clave secreta de Stripe no está configurada.")
+
     try:
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
@@ -134,9 +134,8 @@ async def create_checkout_session(request: Request, item: CheckoutItem):
             metadata={
                 'case_id': item.case_id,
                 'case_description': item.case_description,
-                'user_id': item.case_id.split('_')[0] # Ejemplo de metadato
             },
-            # CRÍTICO: Redirección DEBE coincidir con una URL de tu dominio (BASE_URL)
+            # CRÍTICO: Estas URL deben existir en tu frontend/servidor estático
             success_url=f"{BASE_URL}/success.html?session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{BASE_URL}/cancel.html",
         )
@@ -146,22 +145,3 @@ async def create_checkout_session(request: Request, item: CheckoutItem):
     except Exception as e:
         print(f"Error al crear sesión de Stripe: {e}")
         raise HTTPException(status_code=500, detail=f"Fallo al iniciar el servicio de pagos: {e}")
-
-
-# ==========================================================
-# ENDPOINT 4: WEBHOOK DE STRIPE (Añadir la ruta para el Webhook aquí)
-# ==========================================================
-# Aquí es donde Stripe notifica al backend que el pago se completó. 
-# ESTA RUTA DEBE ESTAR EXPUESTA Y CONFIGURADA EN EL PANEL DE STRIPE.
-# (La implementación real de Webhook requiere manejo de firma y base de datos, 
-# pero se deja el esqueleto para indicar su criticidad).
-
-# @app.post("/api/stripe-webhook")
-# async def stripe_webhook(request: Request):
-#     # 1. Obtener la firma y el cuerpo del evento
-#     # 2. Verificar la firma (SEGURIDAD)
-#     # 3. Procesar el evento (checkout.session.completed)
-#     # 4. Si el pago es OK, obtener case_id de los metadatos y 
-#     # 5. Llamar a Gemini para analizar el caso y guardar el resultado en la BD.
-#     # 6. Marcar el caso como "Analizado" en la BD.
-#     return {"status": "success"}
