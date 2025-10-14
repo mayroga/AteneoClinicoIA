@@ -1,22 +1,22 @@
-Flask==3.1.2
-Flask-Cors==4.0.0
-itsdangerous==2.2.0
-Jinja2==3.1.4
-Werkzeug==3.1.0
-click==8.1.7
-blinker==1.9.0
 python-dotenv==1.0.1
 requests==2.32.3
 SQLAlchemy==2.0.28
 psycopg2-binary==2.9.9
-bcrypt==4.2.0
-passlib==1.7.4
-typing-extensions==4.12.2
-stripe==12.5.1
-google-generativeai==0.8.5  # <--- ¡CORREGIDO! Usamos la última versión disponible (0.8.5)
+
+Framework Web (FastAPI/Uvicorn/Gunicorn)
 uvicorn==0.23.2
 fastapi==0.115.0
 gunicorn==22.0.0
 python-multipart==0.0.9
+
+Autenticación JWT y Hashing de Contraseñas
 python-jose[cryptography]
 passlib[bcrypt]
+bcrypt==4.2.0
+
+Servicios Externos
+stripe==12.5.1
+google-genai # SDK moderno de Gemini
+
+Tipado (Para FastAPI/Pydantic)
+typing-extensions==4.12.2
