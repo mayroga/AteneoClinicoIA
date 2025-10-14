@@ -1,5 +1,6 @@
 import os
 import stripe
+import datetime
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -7,42 +8,35 @@ from contextlib import asynccontextmanager
 from fastapi.openapi.docs import get_redoc_html
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from dotenv import load_dotenv
+from sqlalchemy.orm import Session 
 
-# 💡 CORRECCIÓN DE IMPORTACIÓN DE GEMINI: 
-# Usamos el paquete completo para acceder al objeto Client.
+# --- IMPORTS DE MÓDULOS DEL PROYECTO ---
+# Importaciones de configuración: Claves y URLs
+from config import (
+    APP_NAME, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, 
+    GEMINI_API_KEY, ADMIN_BYPASS_KEY, RENDER_APP_URL
+)
+# Importaciones de base de datos y modelos
+from database import init_db, SessionLocal, get_case_by_id
+import models 
+# Importaciones de routers
+from routes.auth import router as auth_router 
+from routes.volunteer import router as volunteer_router
+from routes.developer import router as developer_router 
+
+# --- Dummies (Manteniendo la estructura de carpetas) ---
+from fastapi import APIRouter
+admin_router = APIRouter()
+professional_router = APIRouter()
+# -----------------------------------------------
+
+# 💡 Cliente Gemini
 import google.generativeai as genai
 
-# Cargar variables de entorno
-load_dotenv() 
-
-# --- Asumiendo la existencia de estos módulos de configuración y rutas ---
-# Si estos archivos no existen, el código fallará al importarlos, pero asumimos
-# que la estructura del proyecto los requiere.
-
-# Importa las dependencias necesarias
-# from routes.auth import router as auth_router
-# from routes.volunteer import router as volunteer_router
-# from routes.professional import router as professional_router
-# from routes.admin import router as admin_router
-# from routes.stripe_webhook import router as stripe_webhook_router
-# from database import init_db
-# from config import APP_NAME
-
-# Dummies para evitar error de NameError en este único archivo
-APP_NAME = "Ateneo Clínico IA"
-def init_db():
-    print("Database initialization placeholder.")
-# Asumiendo que las rutas están vacías si no se definen
-from fastapi import APIRouter
-auth_router = volunteer_router = professional_router = admin_router = stripe_webhook_router = APIRouter()
-
 # --- Inicialización de Clientes y Variables ---
-STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
-ADMIN_BYPASS_KEY = os.getenv("ADMIN_BYPASS_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-flash" 
 
+# Inicialización de Stripe
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
 
@@ -52,7 +46,6 @@ if STRIPE_SECRET_KEY:
 gemini_client = None
 if GEMINI_API_KEY:
     try:
-        # Inicialización usando genai.Client()
         gemini_client = genai.Client(api_key=GEMINI_API_KEY)
         print("Cliente Gemini inicializado exitosamente.")
     except Exception as e:
@@ -67,11 +60,9 @@ else:
 # ==============================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Función que se ejecuta cuando la aplicación se inicia para preparar la base de datos.
-    """
+    """Función que se ejecuta cuando la aplicación se inicia para preparar la base de datos."""
     print("Initializing Database...")
-    init_db() # Llama a la inicialización de DB
+    init_db() # Llama a la inicialización de DB (crea tablas)
     yield
     print("Application shutdown complete.")
 
@@ -82,20 +73,20 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=APP_NAME,
     version="0.1.0",
-    lifespan=lifespan, # Usa el contexto definido arriba
-    docs_url=None, # Deshabilita la documentación de /docs por defecto
-    redoc_url=None # Deshabilita la documentación de /redoc por defecto
+    lifespan=lifespan,
+    docs_url=None, # Desactivar docs en prod por defecto, si es necesario
+    redoc_url=None # Desactivar redoc en prod por defecto, si es necesario
 )
 
 # ==============================================================
 # CONFIGURACIÓN DE CORS
 # ==============================================================
 origins = [
-    "https://ateneoclinicoia.onrender.com",
+    RENDER_APP_URL,
     "http://localhost",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
-    "*", # Permite todos los orígenes. AJUSTAR ESTO EN PRODUCCIÓN A TU DOMINIO DE FRONTEND
+    "*", # Dejar el wildcard si es necesario para el desarrollo de frontend
 ]
 
 app.add_middleware(
@@ -107,80 +98,35 @@ app.add_middleware(
 )
 
 # ==============================================================
-# CONFIGURACIÓN DE ARCHIVOS ESTÁTICOS
+# CONFIGURACIÓN DE ARCHIVOS ESTÁTICOS Y RUTA RAÍZ
 # ==============================================================
-# Montar el directorio 'static' para servir archivos como CSS, JS y imágenes
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Se asume que tienes un directorio 'static' para servir HTML, CSS, JS del frontend.
+# app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# --- Schemas Pydantic ---
-class AdminKey(BaseModel):
-    admin_key: str
-
-class CasePrompt(BaseModel):
-    prompt: str
-    role: str # Nivel de suscripción o 'professional'
-
-class CheckoutItem(BaseModel):
-    case_id: str
-    case_description: str
-    # Se podría incluir aquí el nombre del usuario, etc.
-
-
-# ==============================================================
-# RUTA RAÍZ: SIRVE EL ARCHIVO HTML PRINCIPAL
-# ==============================================================
 @app.get("/", tags=["Root"], response_class=HTMLResponse)
 async def serve_frontend():
-    """Sirve el archivo HTML principal de la aplicación para el frontend."""
-    # Asegúrate de que 'index.html' esté en el mismo directorio que main.py o en 'static'
+    """Ruta para servir la página principal del frontend (index.html)."""
     html_file_path = "index.html"
     try:
         with open(html_file_path, "r", encoding="utf-8") as f:
             html_content = f.read()
         return HTMLResponse(content=html_content)
     except FileNotFoundError:
-        # En entornos de Render/producción, quizás debas referenciar StaticFiles
-        # Si index.html está en 'static' usa: StaticFiles(directory="static").get_response(...)
         return HTMLResponse(
-            content="<h1>Error: Archivo index.html no encontrado en la ruta de la aplicación.</h1>",
+            content="<h1>Error: Archivo index.html no encontrado.</h1>",
             status_code=500
         )
 
 
 # ==============================================================
-# RUTAS DE DOCUMENTACIÓN
-# ==============================================================
-@app.get("/redoc", include_in_schema=False)
-async def redoc_html():
-    """Sirve la página HTML de Redoc."""
-    return get_redoc_html(
-        openapi_url=app.openapi_url,
-        title=app.title + " - Redoc"
-    )
-
-@app.get(app.openapi_url, include_in_schema=False)
-async def get_open_api_endpoint():
-    from fastapi.openapi.utils import get_openapi
-    return get_openapi(
-        title=app.title,
-        version=app.version,
-        routes=app.routes,
-    )
-
-
-# ==============================================================
 # INCLUSIÓN DE ROUTERS CON PREFIJO GLOBAL /api
 # ==============================================================
-# Se incluyen las rutas de los otros archivos (auth, volunteer, professional, admin, webhook)
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
-app.include_router(volunteer_router, prefix="/api/volunteer", tags=["Volunteer"])
-app.include_router(professional_router, prefix="/api/professional", tags=["Professional"])
+app.include_router(volunteer_router, prefix="/api", tags=["Volunteer"]) 
+app.include_router(professional_router, prefix="/api", tags=["Professional"]) 
+app.include_router(developer_router, prefix="/api", tags=["Developer/Admin"]) 
 app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
-app.include_router(stripe_webhook_router, prefix="/api") # Webhook de Stripe queda en /api/stripe/webhook
 
-# ==============================================================
-# ENDPOINTS DEFINIDOS EN MAIN.PY
-# ==============================================================
 
 @app.get("/api", tags=["Status"])
 async def status_check():
@@ -189,96 +135,93 @@ async def status_check():
 
 
 # ==========================================================
-# ENDPOINT 1: VALIDACIÓN DE ACCESO DE ADMINISTRADOR (/api/admin-auth)
+# WEBHOOK DE STRIPE (/api/stripe-webhook) - IMPLEMENTACIÓN FINAL
 # ==========================================================
-@app.post("/api/admin-auth")
-async def admin_auth(key_data: AdminKey):
-    """Verifica si la clave enviada coincide con la ADMIN_BYPASS_KEY de Render."""
+@app.post("/api/stripe-webhook")
+async def stripe_webhook(request: Request):
+    """
+    Maneja los eventos del Webhook de Stripe. Si el pago es exitoso, 
+    llama a la IA para el análisis y guarda el resultado en la DB.
+    """
     
-    if not ADMIN_BYPASS_KEY:
-        # Fallo de configuración si la variable no existe en Render
-        raise HTTPException(status_code=500, detail="Clave de bypass no configurada en el servidor (ADMIN_BYPASS_KEY).")
-    
-    if key_data.admin_key == ADMIN_BYPASS_KEY:
-        return {"success": True, "message": "Autenticación de administrador exitosa.", "score": 9999}
-    else:
-        return {"success": False, "message": "Clave de acceso incorrecta."}
+    if not STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=500, detail="Clave secreta del Webhook no configurada.")
 
-
-# ==========================================================
-# ENDPOINT 2: LLAMADA AL SERVICIO DE IA (GEMINI) (/api/analizar-caso)
-# ==========================================================
-@app.post("/api/analizar-caso")
-async def analyze_case(case_data: CasePrompt):
-    """Llama a Gemini para el análisis clínico usando la clave."""
-    
-    if not gemini_client:
-        raise HTTPException(status_code=503, detail="El servicio de IA (Gemini) no está inicializado. Revisa la GEMINI_API_KEY.")
-        
-    prompt = (
-        f"Analiza el siguiente caso clínico para un profesional de la salud con nivel de suscripción '{case_data.role}'. "
-        f"Genera un resumen, un diagnóstico diferencial y un plan de acción. Descripción del caso: {case_data.prompt}"
-    )
+    payload = await request.body()
+    sig_header = request.headers.get('stripe-signature')
     
     try:
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
         )
-        
-        # El texto de respuesta se envía al frontend
-        return {"success": True, "response_text": response.text}
-        
-    except Exception as e:
-        print(f"Error en la llamada a Gemini: {e}")
-        raise HTTPException(status_code=500, detail=f"Fallo en el servicio de Inteligencia Artificial: {e}")
-
-
-# ==========================================================
-# ENDPOINT 3: CREACIÓN DE SESIÓN STRIPE (/api/checkout)
-# ==========================================================
-@app.post("/api/checkout")
-async def create_checkout_session(request: Request, item: CheckoutItem):
-    """Crea una sesión de pago de Stripe para el voluntario."""
+    except ValueError as e:
+        print(f"Error de firma de Webhook: {e}")
+        raise HTTPException(status_code=400, detail="Firma de Webhook no válida")
+    except stripe.error.SignatureVerificationError as e:
+        print(f"Error de verificación de firma de Stripe: {e}")
+        raise HTTPException(status_code=400, detail="Fallo en la verificación de firma de Stripe")
     
-    # Obtener la URL base dinámicamente o usar la variable de entorno
-    BASE_URL = str(request.base_url).strip('/')
-    
-    if not STRIPE_SECRET_KEY:
-        raise HTTPException(status_code=500, detail="La clave secreta de Stripe no está configurada.")
-    
-    try:
-        checkout_session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            line_items=[{
-                'price_data': {
-                    'currency': 'usd',
-                    'product_data': {'name': 'Análisis de Caso Clínico Voluntario'},
-                    'unit_amount': 5000, # $50.00 USD
-                },
-                'quantity': 1,
-            }],
-            mode='payment',
-            metadata={
-                'case_id': item.case_id,
-                'case_description': item.case_description,
-            },
-            # CRÍTICO: Redirección DEBE coincidir con una URL de tu dominio (BASE_URL)
-            success_url=f"{BASE_URL}/success.html?session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{BASE_URL}/cancel.html",
-        )
+    # ------------------------------------------------------
+    # --- PROCESAMIENTO DE EVENTO CRÍTICO: PAGO EXITOSO ---
+    # ------------------------------------------------------
+    if event['type'] == 'checkout.session.completed':
+        session = event['data']['object']
         
-        return {"success": True, "checkout_url": checkout_session.url}
+        # Obtener los metadatos del caso que guardamos al crear la sesión
+        case_id = session.metadata.get('case_id')
+        case_description = session.metadata.get('case_description')
         
-    except Exception as e:
-        print(f"Error al crear sesión de Stripe: {e}")
-        raise HTTPException(status_code=500, detail=f"Fallo al iniciar el servicio de pagos: {e}")
+        if not case_id or not case_description:
+            print("Error: Metadatos de caso incompletos en la sesión de Stripe.")
+            return {"status": "error", "message": "Metadatos incompletos"}
 
-# ==========================================================
-# ENDPOINT 4: WEBHOOK DE STRIPE (Placeholder)
-# Se ha eliminado el webhook del router y se ha incluido como comentario aquí.
-# Si estás usando el router, elimina esto. Si no, úsalo como guía.
-# ==========================================================
-# @app.post("/api/stripe-webhook")
-# async def stripe_webhook(request: Request):
-#    ... (Implementación real del webhook)
+        db_session: Session = SessionLocal()
+        try:
+            case = get_case_by_id(db_session, int(case_id))
+            
+            if not case:
+                print(f"Advertencia: Caso ID {case_id} no encontrado en la DB.")
+                return {"status": "error", "message": "Caso no encontrado"}
+
+            if case.status != 'pending_payment':
+                 print(f"Advertencia: Caso ID {case_id} ya fue procesado.")
+                 return {"status": "ignored", "message": "Caso ya procesado"}
+
+            # 1. Marcar como pagado
+            case.status = 'paid'
+            db_session.commit()
+            
+            # 2. Llamar a Gemini para el análisis (el servicio principal)
+            analysis_result = "Análisis pendiente: Cliente Gemini no inicializado al momento del webhook."
+            if gemini_client:
+                prompt_ia = (
+                    f"Genera un análisis profesional detallado del caso clínico proporcionado, incluyendo "
+                    f"un resumen, un diagnóstico diferencial, y un plan de manejo completo. Caso: {case_description}"
+                )
+                
+                ia_response = gemini_client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=prompt_ia
+                )
+                analysis_result = ia_response.text
+
+            # 3. Guardar el resultado del análisis y marcar como completado
+            case.analysis_result = analysis_result
+            case.status = 'analysis_complete'
+            case.completed_at = datetime.datetime.utcnow()
+            case.stripe_session_id = session.id 
+            db_session.commit()
+
+            print(f"✅ Caso ID {case_id} procesado y análisis guardado en DB.")
+            return {"status": "success", "received": True}
+
+        except Exception as e:
+            db_session.rollback()
+            print(f"ERROR FATAL en el Webhook de Stripe al procesar el caso {case_id}: {e}")
+            # Aunque haya un error interno, devolvemos 200 a Stripe para evitar reintentos infinitos
+            return {"status": "error", "message": f"Error interno: {e}"}
+        finally:
+            db_session.close()
+    
+    # Ignorar otros eventos de Stripe
+    return {"status": "ignored", "message": "Evento de Stripe ignorado."}
