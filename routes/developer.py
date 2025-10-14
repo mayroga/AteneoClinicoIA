@@ -1,130 +1,77 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from pydantic import BaseModel
-import json
-import datetime
-from database import get_db
-from models import Case
-from utils import get_current_user
-from config import GEMINI_API_KEY
-# 💡 CORRECCIÓN CLAVE: Usamos la importación explícita para el SDK de Gemini
-from google.genai import Client, configure 
+import os
+# Importación del SDK moderno: usamos 'from google import genai' para asegurar
+# que funcione con la estructura del paquete 'google-genai'
+from google import genai 
+from config import GEMINI_API_KEY, AI_TIMEOUT_SECONDS
 
 # =================================================================
-# CONFIGURACIÓN DEL ROUTER
+# INICIALIZACIÓN ROBUSTA DE GEMINI
 # =================================================================
-router = APIRouter(prefix="/developer", tags=["developer"])
-
-# La clave de Gemini se asume configurada en config.py
-if GEMINI_API_KEY:
-    try:
-        # Inicialización del cliente Gemini para uso en la ruta (corregido)
-        configure(api_key=GEMINI_API_KEY)
-        gemini_client = Client() # Usamos el constructor Client importado directamente
+# Intentamos configurar el cliente inmediatamente usando la clave de entorno.
+try:
+    if GEMINI_API_KEY:
+        # 'configure' se llama directamente desde el módulo 'genai'
+        genai.configure(api_key=GEMINI_API_KEY)
         print("INFO: Cliente de Gemini configurado con éxito.")
-    except Exception as e:
-        # Mantener el manejo de errores original
-        print(f"Error al inicializar cliente Gemini en developer router: {e}")
-        gemini_client = None
-else:
-    print("Advertencia: GEMINI_API_KEY no configurada. El análisis de IA no funcionará.")
-    gemini_client = None
+    else:
+        print("ADVERTENCIA: GEMINI_API_KEY no encontrada. El servicio de IA no funcionará.")
+except Exception as e:
+    print(f"ADVERTENCIA: Fallo en la configuración de Gemini: {e}")
 
-# =================================================================
-# SCHEMAS
-# =================================================================
-class CaseAnalysisInput(BaseModel):
-    """Esquema para la entrada de análisis de un caso clínico."""
-    case_description: str
-
-class CaseAnalysisOutput(BaseModel):
-    """Esquema para la respuesta después de un análisis exitoso."""
-    case_id: int
-    analysis_result: str
-    user_role: str
-
-# =================================================================
-# DEPENDENCIAS DE SEGURIDAD
-# =================================================================
-
-def get_admin_for_unlimited_access(db: Session = Depends(get_db)):
-    """
-    Dependencia que verifica que el usuario autenticado tiene el rol 'admin'.
-    Esto garantiza acceso ilimitado y gratuito para el desarrollador.
-    """
-    current_user = get_current_user(db=db) # Obtiene el usuario del JWT
-    if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Acceso denegado. Esta ruta es solo para Administradores (Desarrollador)."
-        )
-    return current_user # Retorna el objeto usuario si es admin
-
-# =================================================================
-# 1. RUTA DE ANÁLISIS ILIMITADO (SOLO ADMIN)
-# =================================================================
-@router.post(
-    "/analizar-caso-ilimitado",
-    response_model=CaseAnalysisOutput,
-    summary="Análisis de Caso Clínico Ilimitado (Exclusivo para Admin)"
-)
-async def analyze_case_unlimited(
-    input_data: CaseAnalysisInput,
-    db: Session = Depends(get_db),
-    admin_user=Depends(get_admin_for_unlimited_access) # Garantiza que solo el admin acceda
-):
-    """
-    Permite al administrador (desarrollador) enviar un caso clínico y recibir
-    el análisis inmediato sin pasar por el flujo de pago.
-    """
-    if not gemini_client:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Servicio de IA no configurado. Falta GEMINI_API_KEY."
-        )
-
-    # 1. Ejecutar el análisis de la IA
+# Creamos una función auxiliar para obtener el cliente, ya configurado.
+def get_ai_client():
+    # Usamos genai.Client() sin argumentos para usar la configuración global.
     try:
-        prompt = (
-            "Eres un Analista Clínico de IA avanzado. Analiza el siguiente caso clínico "
-            "y proporciona un resumen estructurado con diagnóstico diferencial y posibles "
-            "pasos a seguir. No te salgas de tu rol. Caso: " + input_data.case_description
+        # 'Client' se llama directamente desde el módulo 'genai'
+        return genai.Client()
+    except Exception as e:
+        # Esto atrapará errores si la configuración falló
+        raise ConnectionError(f"El cliente de Gemini no se pudo obtener. Revise su clave: {e}")
+
+
+def analyze_case(description: str, file_path: str = None) -> str:
+    """
+    Ejecuta el análisis multimodal de un caso clínico usando Gemini.
+    """
+    client = get_ai_client()
+    model = 'gemini-2.5-flash'
+    prompt_parts = [
+        "Eres un asistente de análisis clínico. Analiza el siguiente caso de voluntario "
+        "y proporciona un resumen de las posibles vías de investigación y recomendaciones de acción "
+        "en base a la descripción y el archivo adjunto (si existe). Sé conciso y profesional. "
+        f"Descripción del caso: {description}"
+    ]
+    
+    file_part = None
+
+    try:
+        # 1. Subir y añadir archivo si existe
+        if file_path and os.path.exists(file_path):
+            file_part = client.files.upload(file=file_path)
+            prompt_parts.append(file_part)
+        
+        # 2. Llamar al modelo de IA
+        # Usamos 'request_options' para pasar el timeout, ya que 'config' está obsoleto.
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt_parts,
+            request_options={"timeout": AI_TIMEOUT_SECONDS} 
         )
         
-        # Uso del cliente correctamente inicializado
-        response = gemini_client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt
-        )
-        analysis_result = response.text
-    
+        return response.text
+
     except Exception as e:
-        print(f"Error en la llamada a la API de Gemini: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener la respuesta de la IA."
-        )
+        raise Exception(f"Fallo en la comunicación con la IA: {str(e)}")
 
-    # 2. Crear y guardar el caso en la DB (marcado como pagado/completado)
-    new_case = Case(
-        user_id=admin_user.id,
-        description=input_data.case_description,
-        status="completed", # Se marca como completado inmediatamente
-        analysis_result=analysis_result,
-        payment_intent_id="ADMIN_ACCESS",
-        price_amount=0,
-        currency="USD",
-        created_at=datetime.datetime.utcnow(),
-        updated_at=datetime.datetime.utcnow()
-    )
-    
-    db.add(new_case)
-    db.commit()
-    db.refresh(new_case)
-
-    # 3. Devolver el resultado
-    return {
-        "case_id": new_case.id,
-        "analysis_result": analysis_result,
-        "user_role": admin_user.role
-    }
+    finally:
+        # 3. Limpieza
+        if file_part:
+            try:
+                client.files.delete(name=file_part.name)
+            except Exception as e:
+                print(f"Advertencia: No se pudo eliminar el archivo de Gemini: {e}")
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                print(f"Advertencia: No se pudo eliminar el archivo local: {e}")
