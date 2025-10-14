@@ -13,7 +13,7 @@ bcrypt==4.2.0
 passlib==1.7.4
 typing-extensions==4.12.2
 stripe==12.5.1
-google-generativeai>=0.15.0  # <--- ¡ACTUALIZADO! Necesario para 'from google.genai import Client'
+google-generativeai==0.8.5  # <--- ¡CORREGIDO! Usamos la última versión disponible (0.8.5)
 uvicorn==0.23.2
 fastapi==0.115.0
 gunicorn==22.0.0
