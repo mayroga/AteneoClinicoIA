@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import engine, Base
-from routes import volunteer, professional, admin # Importar routers
+from database import engine, Base # <-- Importación CORRECTA ahora que database.py la expone
+from routes import volunteer, professional, admin # Asume que estos existen y son correctos
 
 # Crear tablas (si no existen)
 try:
@@ -17,8 +17,7 @@ app = FastAPI(
 
 # Configuración CORS
 origins = [
-    "*", 
-    # Añade tus dominios de frontend aquí para seguridad
+    "*", # Permite todos los orígenes (ajusta esto en producción)
 ]
 
 app.add_middleware(
@@ -37,3 +36,6 @@ app.include_router(admin.router, prefix="")
 @app.get("/")
 def read_root():
     return {"message": "Ateneo Clínico IA API funcionando correctamente."}
+
+# Si usas Render, tu comando de inicio será:
+# gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
