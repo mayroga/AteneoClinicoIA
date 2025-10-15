@@ -1,35 +1,24 @@
 import os
+import stripe
 from dotenv import load_dotenv
 
-load_dotenv() 
+load_dotenv()
 
-# =================================================================
-# CONFIGURACIONES BÁSICAS
-# =================================================================
-APP_NAME = os.getenv("APP_NAME", "Ateneo Clínico IA")
-DATABASE_URL = os.getenv("DATABASE_URL")
+# Claves Esenciales
+ADMIN_BYPASS_KEY = os.environ.get("ADMIN_BYPASS_KEY", "default_dev_key")
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# =================================================================
-# CLAVES DE SERVICIO
-# =================================================================
-ADMIN_BYPASS_KEY = os.getenv("ADMIN_BYPASS_KEY")
+# URL Base de tu aplicación en Render (CRÍTICO para redirecciones de Stripe)
+# DEBES establecer esta variable en tu entorno de Render
+BASE_URL = os.environ.get("URL_SITE", "https://ateneoclinicoia.onrender.com")
 
-# Stripe (Asumimos que estas están en Render)
-STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+# Inicialización global de Stripe (CRÍTICO)
+if STRIPE_SECRET_KEY:
+    stripe.api_key = STRIPE_SECRET_KEY
+else:
+    print("❌ ERROR: STRIPE_SECRET_KEY no configurada. Los pagos fallarán.")
 
-# Gemini
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-# URL de la aplicación (CRUCIAL para los redireccionamientos de Stripe)
-RENDER_APP_URL = os.getenv("RENDER_APP_URL", "http://localhost:8000")
-
-# Otros ajustes (ej. timeout para llamadas a IA)
-AI_TIMEOUT_SECONDS = int(os.getenv("AI_TIMEOUT_SECONDS", 60)) 
-
-# =================================================================
-# CONFIGURACIÓN JWT
-# =================================================================
-SECRET_KEY = os.getenv("SECRET_KEY") # Clave secreta para firmar tokens
-ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # Token válido por 24 horas
+# Puedes inicializar el cliente Gemini aquí
+# from google import genai
+# client = genai.Client(api_key=GEMINI_API_KEY)
