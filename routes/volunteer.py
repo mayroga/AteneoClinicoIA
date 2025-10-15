@@ -15,8 +15,6 @@ router = APIRouter(prefix="/volunteer", tags=["volunteer"])
 
 # --- LÓGICA DE PROCESAMIENTO ASÍNCRONO ---
 def process_paid_case_task(case_id: int, db: Session):
-    """Tarea de fondo para procesar el caso con la IA después del pago (o acceso gratuito)."""
-    
     case = db.query(Case).filter(Case.id == case_id).first()
     if not case:
         print(f"ERROR TAREA: Caso {case_id} no encontrado para procesamiento de IA.")
@@ -48,14 +46,13 @@ def process_paid_case_task(case_id: int, db: Session):
 
 @router.post("/create-case")
 async def create_case(
+    # 🔑 CORRECCIÓN DEL SYNTAX ERROR: Argumento sin valor por defecto debe ir ANTES de Form/File/Depends
+    background_tasks: BackgroundTasks, 
+    
     user_id: int = Form(...),
     description: str = Form(...),
     has_legal_consent: bool = Form(...),
     file: UploadFile = File(None),
-    
-    # 🔑 CORRECCIÓN DEL SYNTAX ERROR: background_tasks se mueve a esta posición
-    background_tasks: BackgroundTasks, 
-    
     db: Session = Depends(get_db)
 ):
     user = db.query(User).filter(User.id == user_id, User.role == "volunteer").first()
@@ -71,7 +68,6 @@ async def create_case(
     # 1. Manejo y Anonimización del Archivo
     if file:
         file_type = detect_file_type(file.filename)
-        # Revisión de tipo de contenido para mayor seguridad
         if file_type == "unknown" and file.content_type not in ["image/jpeg", "image/png", "application/pdf"]:
             raise HTTPException(status_code=400, detail="Tipo de archivo no soportado o desconocido. Solo se permiten imágenes o PDF.")
 
@@ -103,7 +99,7 @@ async def create_case(
             has_legal_consent=has_legal_consent,
             is_paid=True,
             created_at=datetime.datetime.utcnow(),
-            stripe_session_id="DEVELOPER_FREE_ACCESS"
+            stripe_session_id="DEVELOPER_FREE_ACCESS" 
         )
         db.add(new_case)
         db.commit()
@@ -190,7 +186,6 @@ async def stripe_webhook(
         session = event['data']['object']
         stripe_session_id = session.get("id")
         
-        # Buscar caso usando el session ID
         case = db.query(Case).filter(Case.stripe_session_id == stripe_session_id).first()
         
         if not case or case.is_paid:
