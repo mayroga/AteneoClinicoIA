@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from database import Base
+from database import Base # Asume que 'database.py' define la clase Base
 
 # =================================================================
 # Usuarios (voluntarios y profesionales)
@@ -15,11 +15,14 @@ class User(Base):
     full_name = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
-    role = Column(String, nullable=False)  # volunteer, clinician
+    role = Column(String, nullable=False)  # volunteer, professional, admin
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    cases = relationship("Case", back_populates="owner")
-    # assigned_cases = relationship("Case", foreign_keys='Case.assigned_to_id', viewonly=True)
+    # Relación: Un usuario puede ser dueño (voluntario/profesional) de muchos casos
+    cases = relationship("Case", foreign_keys="Case.volunteer_id", back_populates="owner")
+    # Relación: Un usuario (profesional) puede tener casos asignados
+    assigned_cases = relationship("Case", foreign_keys="Case.assigned_to_id")
+
 
 # =================================================================
 # Tabla para definir los planes de suscripción para profesionales
@@ -44,18 +47,27 @@ class Case(Base):
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     level = Column(String, default="basic")  # basic, medium, advanced
-    status = Column(String, default="pending")  # pending, in_progress, completed
     
-    # 🔑 CAMPOS AÑADIDOS PARA STRIPE Y CONSENTIMIENTO 🔑
+    # 🔑 Campos del flujo de IA/Archivos 🔑
+    file_path = Column(String, nullable=True)  # Ruta al archivo anonimizado
+    ai_result = Column(Text, nullable=True)    # Resultado del análisis de la IA
+    
+    # Estados: pending, awaiting_payment, processing, completed, error
+    status = Column(String, default="pending") 
+    
+    # 💳 CAMPOS AÑADIDOS PARA STRIPE Y CONSENTIMIENTO 💳
     stripe_session_id = Column(String, unique=True, index=True, nullable=True)
     is_paid = Column(Boolean, default=False)
     has_legal_consent = Column(Boolean, default=False)
     # --------------------------------------------------
     
-    volunteer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    assigned_to_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    # Relaciones con User
+    volunteer_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # El usuario que lo subió
+    assigned_to_id = Column(Integer, ForeignKey("users.id"), nullable=True) # El profesional asignado para revisión
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
+    # Definición de relaciones ORM
     owner = relationship("User", foreign_keys=[volunteer_id], back_populates="cases")
-    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id], viewonly=True)
