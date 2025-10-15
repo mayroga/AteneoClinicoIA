@@ -3,13 +3,13 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 import datetime
 
-Base = declarative_base()
+Base = declarative_base() # <-- Define la Base aquí
 
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True)
-    password = Column(String) # NOTA: ¡DEBE SER HASHED en un proyecto real!
+    password = Column(String)
     full_name = Column(String, nullable=True)
     role = Column(String, default="volunteer") # "volunteer", "professional", "admin"
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -25,7 +25,7 @@ class Case(Base):
     description = Column(Text)
     file_path = Column(String, nullable=True)
     
-    status = Column(String, default="pending") # pending, awaiting_payment, processing, completed, error
+    status = Column(String, default="pending") 
     is_paid = Column(Boolean, default=False)
     price_paid = Column(Integer, default=50) 
     stripe_session_id = Column(String, nullable=True)
