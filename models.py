@@ -3,15 +3,15 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 import datetime
 
-Base = declarative_base() # <-- Define la Base aquí
+Base = declarative_base() # <-- El objeto Base se define aquí
 
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True)
-    password = Column(String)
+    password = Column(String) 
     full_name = Column(String, nullable=True)
-    role = Column(String, default="volunteer") # "volunteer", "professional", "admin"
+    role = Column(String, default="volunteer")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
     cases = relationship("Case", back_populates="volunteer")
