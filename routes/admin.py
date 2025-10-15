@@ -12,9 +12,6 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # 🔑 Dependencia para validar acceso de administrador (Developer Bypass)
 # ------------------------------------------------------------------
 def admin_required(x_admin_key: str = Header(...)):
-    """
-    Verifica si el encabezado X-Admin-Key coincide con el ADMIN_BYPASS_KEY.
-    """
     if x_admin_key != ADMIN_BYPASS_KEY:
         raise HTTPException(status_code=403, detail="Acceso denegado: clave administrativa inválida")
     return True
@@ -36,7 +33,7 @@ def get_users(admin: bool = Depends(admin_required), db: Session = Depends(get_d
     ]
 
 # ------------------------------------------------------------------
-# 2. Obtener lista de todos los casos (Alineado con models.py)
+# 2. Obtener lista de todos los casos
 # ------------------------------------------------------------------
 @router.get("/cases")
 def get_cases(admin: bool = Depends(admin_required), db: Session = Depends(get_db)):
@@ -44,8 +41,8 @@ def get_cases(admin: bool = Depends(admin_required), db: Session = Depends(get_d
     return [
         {
             "id": c.id,
-            "volunteer_id": c.volunteer_id, # Usando el campo correcto de models.py
-            "assigned_to_id": c.assigned_to_id, # Agregado para visibilidad
+            "volunteer_id": c.volunteer_id,
+            "assigned_to_id": c.assigned_to_id,
             "title": c.title,
             "status": c.status,
             "is_paid": c.is_paid,
