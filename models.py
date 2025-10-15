@@ -1,66 +1,39 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Float
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-from datetime import datetime
-from database import Base # Asume que 'database.py' define la clase Base
+import datetime
 
-# =================================================================
-# Usuarios (voluntarios, profesionales, admin)
-# =================================================================
+Base = declarative_base()
+
 class User(Base):
     __tablename__ = "users"
-
     id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    email = Column(String, unique=True, index=True)
+    password = Column(String) # NOTA: ¡DEBE SER HASHED en un proyecto real!
     full_name = Column(String, nullable=True)
-    is_active = Column(Boolean, default=True)
-    is_admin = Column(Boolean, default=False)
-    role = Column(String, nullable=False)  # volunteer, professional, admin
-    created_at = Column(DateTime, default=datetime.utcnow)
+    role = Column(String, default="volunteer") # "volunteer", "professional", "admin"
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    cases = relationship("Case", back_populates="volunteer")
 
-    # Relaciones:
-    submitted_cases = relationship("Case", foreign_keys="Case.volunteer_id", back_populates="owner")
-    assigned_cases = relationship("Case", foreign_keys="Case.assigned_to_id")
-
-
-# =================================================================
-# Tabla para definir los planes de suscripción para profesionales
-# =================================================================
-class ProfessionalLevel(Base):
-    __tablename__ = "professional_levels"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, nullable=False)
-    price_id = Column(String, unique=True, nullable=False)
-    monthly_fee = Column(Float, nullable=False)
-    features = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-# =================================================================
-# Casos clínicos
-# =================================================================
 class Case(Base):
     __tablename__ = "cases"
-
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    description = Column(Text, nullable=True)
-    level = Column(String, default="basic")
+    volunteer_id = Column(Integer, ForeignKey("users.id"))
     
+    title = Column(String)
+    description = Column(Text)
     file_path = Column(String, nullable=True)
-    ai_result = Column(Text, nullable=True)
     
-    status = Column(String, default="pending") 
-    
-    stripe_session_id = Column(String, unique=True, index=True, nullable=True)
+    status = Column(String, default="pending") # pending, awaiting_payment, processing, completed, error
     is_paid = Column(Boolean, default=False)
+    price_paid = Column(Integer, default=50) 
+    stripe_session_id = Column(String, nullable=True)
     has_legal_consent = Column(Boolean, default=False)
-    
-    volunteer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    assigned_to_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
 
-    owner = relationship("User", foreign_keys=[volunteer_id], back_populates="submitted_cases")
-    assigned_to = relationship("User", foreign_keys=[assigned_to_id], viewonly=True)
+    ai_result = Column(Text, nullable=True) 
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    volunteer = relationship("User", back_populates="cases")
