@@ -9,7 +9,7 @@
     <style>
         /* Fuente Inter para mejor legibilidad */
         body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
-        .card { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06); }
+        .card { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba{0, 0, 0, 0.06}; }
         /* Estilo para la pestaña activa */
         .tab-button.active { background-color: #10b981; color: white; }
     </style>
@@ -17,8 +17,7 @@
 <body class="p-4 md:p-8 min-h-screen flex items-start justify-center">
 
     <script>
-        // CRÍTICO: REEMPLAZA ESTA URL con la URL REAL DE TU API EN RENDER
-        // Esta es la URL base de tu backend de FastAPI.
+        // URL FINAL DE LA API EN RENDER, CONFIRMADA POR EL USUARIO.
         const RENDER_APP_URL = "https://ateneoclinicoia.onrender.com"; 
         
         // ID de usuario de ejemplo para las pruebas
@@ -38,7 +37,7 @@
                 resultsDiv.innerHTML = `
                     <div class="bg-yellow-100 border border-yellow-400 text-yellow-700 p-4 rounded-md mt-4">
                         <p class="font-bold">Pago Requerido:</p>
-                        <p>Redirigiendo a Stripe en 3 segundos...</p>
+                        <p>Redirigiendo a la simulación de pago en 3 segundos...</p>
                         <a href="${response.payment_url}" target="_blank" class="text-blue-600 underline hover:text-blue-800">
                             (Si la redirección falla, haga clic aquí para pagar)
                         </a>
@@ -112,9 +111,9 @@
                         <p class="font-bold">Error de Conexión (Failed to fetch):</p>
                         <p>No se pudo conectar con la API en <code>${RENDER_APP_URL}</code>.</p>
                         <p class="mt-2 text-sm">
-                            1. **Verifique la URL:** Asegúrese de que la variable <code>RENDER_APP_URL</code> en el código es exactamente la URL de su API en Render.
+                            1. **Verifique la URL:** Asegúrese de que la URL de su API en Render es accesible.
                             2. **Verifique el Estado:** Confirme que su servidor de Render está activo.
-                            3. **Vuelva a Intentar:** Si el servidor está durmiendo (plan gratuito), espere unos segundos y vuelva a presionar Enviar.
+                            3. **CORS:** Confirme que su <code>main.py</code> tiene la configuración de CORS adecuada.
                         </p>
                         <p class="mt-2 text-xs text-gray-700">Detalles: ${error.message}</p>
                     </div>
