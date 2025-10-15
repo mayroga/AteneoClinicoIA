@@ -4,8 +4,8 @@ from database import get_db, get_case_by_stripe_session_id
 from models import Case, User
 from services.payment_service import create_volunteer_payment_session
 from services.ai_service import analyze_case
-from services.anonymizer import anonymize_file
-from config import STRIPE_WEBHOOK_SECRET
+from services.anonymizer import anonymize_file, detect_file_type # 🔑 IMPORTACIÓN CORREGIDA
+from config import STRIPE_WEBHOOK_SECRET, ADMIN_BYPASS_KEY # 🔑 IMPORTACIÓN NECESARIA
 import datetime
 import uuid
 import os
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/volunteer", tags=["volunteer"])
 
 # --- LÓGICA DE PROCESAMIENTO ASÍNCRONO ---
 def process_paid_case_task(case_id: int, db: Session):
-    """Tarea de fondo para procesar el caso con la IA después del pago."""
+    """Tarea de fondo para procesar el caso con la IA después del pago (o acceso gratuito)."""
     
     # 1. Obtenemos el caso (necesitamos un nuevo DB Session para tareas de fondo)
     case = db.query(Case).filter(Case.id == case_id).first()
@@ -26,7 +26,8 @@ def process_paid_case_task(case_id: int, db: Session):
     # 2. Ejecutar análisis de IA
     try:
         print(f"INFO TAREA: Iniciando análisis de IA para caso {case.id}.")
-        ai_result = analyze_case(case.description, case.file_path)
+        # NOTA: La función analyze_case ya maneja la subida/descarga/limpieza del archivo en Gemini
+        ai_result = analyze_case(case.description, case.file_path) 
         
         # 3. Actualizar DB
         case.ai_result = ai_result
@@ -47,15 +48,16 @@ def process_paid_case_task(case_id: int, db: Session):
         db.close()
 
 # ------------------------------------------------------------------
-# --- ENDPOINT 1: CREAR CASO Y GENERAR PAGO ---
+# --- ENDPOINT 1: CREAR CASO Y GENERAR PAGO (O BYPASS) ---
 # ------------------------------------------------------------------
 
 @router.post("/create-case")
 async def create_case(
     user_id: int = Form(...),
     description: str = Form(...),
-    has_legal_consent: bool = Form(...), # 🔑 CRUCIAL: Requerir consentimiento
+    has_legal_consent: bool = Form(...),
     file: UploadFile = File(None),
+    background_tasks: BackgroundTasks, # 🔑 AÑADIDO: Necesario para la tarea de fondo
     db: Session = Depends(get_db)
 ):
     user = db.query(User).filter(User.id == user_id, User.role == "volunteer").first()
@@ -67,18 +69,61 @@ async def create_case(
         raise HTTPException(status_code=400, detail="Se requiere consentimiento legal para enviar y procesar el caso.")
 
     file_path = None
-    # 1. Manejo y Anonimización del Archivo (lógica omitida para brevedad, pero debe estar aquí)
-    # ... (Se asume que la lógica de archivo y anonymize_file funciona) ...
+    case_title = description[:50] if description else f"Caso Voluntario {user_id}-{datetime.datetime.utcnow().timestamp()}"
+
+    # 1. Manejo y Anonimización del Archivo (Lógica base)
     if file:
+        file_type = detect_file_type(file.filename)
+        if file_type == "unknown":
+             raise HTTPException(status_code=400, detail="Tipo de archivo no soportado.")
+             
+        # Guardar archivo temporalmente
         filename = f"{uuid.uuid4()}_{file.filename}"
         temp_path = f"temp/{filename}"
         os.makedirs("temp", exist_ok=True)
         with open(temp_path, "wb") as f:
             f.write(await file.read())
-        file_path = anonymize_file(temp_path)
+            
+        # Anonimizar (sobrescribe el archivo en temp_path con un archivo de referencia)
+        anonymize_file(temp_path, file_type) 
+        file_path = temp_path # Usamos la ruta temporal con el contenido anonimizado
 
+    # ----------------------------------------------------------------------
+    # 🔑 LÓGICA DE ACCESO GRATUITO PARA DESARROLLADOR (BYPASS DE PAGO) 🔑
+    # ----------------------------------------------------------------------
+    developer_email = "maykel75122805321@gmail.com"
+    free_access_key = "maykel-free-access" # Debe coincidir con el valor en la variable de entorno
 
-    case_title = description[:50] if description else f"Caso Voluntario {user_id}-{datetime.datetime.utcnow().timestamp()}"
+    if user.email == developer_email or ADMIN_BYPASS_KEY == free_access_key:
+        
+        # Crear caso en DB (status: processing, is_paid=True por bypass)
+        new_case = Case(
+            volunteer_id=user_id,
+            title=case_title,
+            description=description,
+            file_path=file_path,
+            status="processing",
+            has_legal_consent=has_legal_consent,
+            is_paid=True,
+            created_at=datetime.datetime.utcnow(),
+            stripe_session_id="DEVELOPER_FREE_ACCESS" # Marcador
+        )
+        db.add(new_case)
+        db.commit()
+        db.refresh(new_case)
+
+        # Ejecutar IA directamente en background
+        db_session_for_task = get_db().__next__()
+        background_tasks.add_task(process_paid_case_task, new_case.id, db_session_for_task)
+
+        return {
+            "message": "Caso procesado gratis como desarrollador.",
+            "case_id": new_case.id,
+            "status": "processing"
+        }
+    # ----------------------------------------------------------------------
+    # FIN DEL BYPASS. CONTINÚA EL FLUJO NORMAL (PAGO REQUERIDO)
+    # ----------------------------------------------------------------------
 
     # 2. Crear caso inicial en DB (status: awaiting_payment)
     new_case = Case(
@@ -100,9 +145,9 @@ async def create_case(
         payment_session_data = create_volunteer_payment_session(
             user_email=user.email,
             case_price=50,
-            # CRUCIAL: Pasamos el ID del caso como metadata para que Stripe lo devuelva en el webhook
             metadata={"case_id": new_case.id}, 
-            success_url=f"/success?case_id={new_case.id}" # Ejemplo de URL de éxito
+            # NOTA: Usar el ID del caso en la URL de éxito para mostrar un mensaje
+            success_url=f"/success?case_id={new_case.id}" 
         )
         if "error" in payment_session_data:
             raise Exception(payment_session_data["error"])
@@ -128,6 +173,8 @@ async def create_case(
 # ------------------------------------------------------------------
 # --- ENDPOINT 2: WEBHOOK DE STRIPE (ACTIVA LA IA) ---
 # ------------------------------------------------------------------
+# NOTA: Esta ruta debería idealmente estar en routes/stripe_webhook.py
+# pero se mantiene aquí para conveniencia si usas un solo router principal.
 
 @router.post("/stripe-webhook")
 async def stripe_webhook(
@@ -156,7 +203,7 @@ async def stripe_webhook(
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
 
-        # CRUCIAL: Obtener el ID de sesión y buscar el caso en la DB
+        # Obtener el ID de sesión y buscar el caso en la DB
         stripe_session_id = session.get("id")
         case = get_case_by_stripe_session_id(db, stripe_session_id)
         
@@ -176,7 +223,7 @@ async def stripe_webhook(
         
         print(f"INFO WEBHOOK: Pago exitoso para caso {case.id}. Activando tarea de IA.")
 
-        # 5. 🔑 ACTIVAR LA TAREA DE IA EN SEGUNDO PLANO
+        # 5. ACTIVAR LA TAREA DE IA EN SEGUNDO PLANO
         # La función de tarea de fondo necesita su propia sesión de DB
         background_tasks.add_task(process_paid_case_task, case.id, get_db().__next__())
 
