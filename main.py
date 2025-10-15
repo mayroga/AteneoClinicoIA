@@ -27,7 +27,11 @@ app.add_middleware(
 @app.get("/")
 def read_root():
     """Ruta de prueba simple para verificar que la API está funcionando."""
-    return {"message": "Ateneo Clínico IA API está funcionando. ¡Conexión OK!"}
+    # MENSAJE DE INICIO MEJORADO
+    return {
+        "message": "Ateneo Clínico IA API está funcionando. ¡Conexión OK!",
+        "next_step": "Para probar la lógica de pago y formularios (Voluntario y Profesional), use la ruta /docs para acceder a Swagger UI, o utilice la interfaz frontend (index.html)."
+    }
 
 # =========================================================================
 # 2. ENDPOINT PARA VOLUNTARIOS (Análisis de Caso) - Precio: $50 USD
