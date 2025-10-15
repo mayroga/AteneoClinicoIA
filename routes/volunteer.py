@@ -15,50 +15,45 @@ router = APIRouter(prefix="/volunteer", tags=["volunteer"])
 
 # --- LÓGICA DE PROCESAMIENTO ASÍNCRONO ---
 def process_paid_case_task(case_id: int, db: Session):
+    """Tarea de fondo para procesar el caso con la IA después de la activación."""
     case = db.query(Case).filter(Case.id == case_id).first()
     if not case:
         print(f"ERROR TAREA: Caso {case_id} no encontrado para procesamiento de IA.")
         return
-
     try:
         print(f"INFO TAREA: Iniciando análisis de IA para caso {case.id}.")
         ai_result = analyze_case(case.description, case.file_path) 
-        
         case.ai_result = ai_result
         case.status = "completed"
         case.updated_at = datetime.datetime.utcnow()
         db.commit()
         print(f"INFO TAREA: Caso {case.id} completado con éxito.")
-
     except Exception as e:
         print(f"ERROR TAREA: Fallo en el análisis de IA para caso {case.id}: {str(e)}")
         case.status = "error"
         case.ai_result = f"Error de procesamiento de IA: {str(e)}"
         case.updated_at = datetime.datetime.utcnow()
         db.commit()
-    
     finally:
         db.close() 
 
 # ------------------------------------------------------------------
-# --- ENDPOINT 1: CREAR CASO Y GENERAR PAGO (O BYPASS) ---
+# --- ENDPOINT 1: CREAR CASO Y ACTIVAR SERVICIO (PAGO O BYPASS) ---
 # ------------------------------------------------------------------
 
 @router.post("/create-case")
 async def create_case(
-    # 🔑 CORRECCIÓN DEL SYNTAX ERROR: Argumento sin valor por defecto debe ir ANTES de Form/File/Depends
     background_tasks: BackgroundTasks, 
-    
     user_id: int = Form(...),
     description: str = Form(...),
     has_legal_consent: bool = Form(...),
+    developer_bypass_key: str = Form(None), # Campo opcional para la clave de acceso gratuito
     file: UploadFile = File(None),
     db: Session = Depends(get_db)
 ):
     user = db.query(User).filter(User.id == user_id, User.role == "volunteer").first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado o no es voluntario")
-
     if not has_legal_consent:
         raise HTTPException(status_code=400, detail="Se requiere consentimiento legal para enviar y procesar el caso.")
 
@@ -83,12 +78,9 @@ async def create_case(
         file_path = temp_path
 
     # ----------------------------------------------------------------------
-    # 🔑 LÓGICA DE ACCESO GRATUITO PARA DESARROLLADOR (BYPASS DE PAGO) 🔑
+    # 🔑 LÓGICA DE BYPASS DE DESARROLLADOR
     # ----------------------------------------------------------------------
-    developer_email = "maykel75122805321@gmail.com"
-    free_access_key = "maykel-free-access" 
-
-    if user.email == developer_email or ADMIN_BYPASS_KEY == free_access_key:
+    if developer_bypass_key and developer_bypass_key == ADMIN_BYPASS_KEY:
         
         new_case = Case(
             volunteer_id=user_id,
@@ -97,9 +89,9 @@ async def create_case(
             file_path=file_path,
             status="processing", 
             has_legal_consent=has_legal_consent,
-            is_paid=True,
+            is_paid=True, # Marcado como pagado por bypass
             created_at=datetime.datetime.utcnow(),
-            stripe_session_id="DEVELOPER_FREE_ACCESS" 
+            stripe_session_id="DEVELOPER_FREE_ACCESS"
         )
         db.add(new_case)
         db.commit()
@@ -109,12 +101,12 @@ async def create_case(
         background_tasks.add_task(process_paid_case_task, new_case.id, db_session_for_task)
 
         return {
-            "message": "Caso procesado gratis como desarrollador.",
+            "message": "Caso procesado gratis por clave de bypass.",
             "case_id": new_case.id,
             "status": "processing"
         }
     # ----------------------------------------------------------------------
-    # FIN DEL BYPASS. CONTINÚA EL FLUJO NORMAL (PAGO REQUERIDO)
+    # FIN DEL BYPASS. INICIA EL FLUJO NORMAL (PAGO REQUERIDO)
     # ----------------------------------------------------------------------
 
     # 2. Crear caso inicial en DB (status: awaiting_payment)
@@ -132,10 +124,9 @@ async def create_case(
     db.commit()
     db.refresh(new_case)
 
-    # 3. Crear sesión de pago en Stripe
+    # 3. Crear sesión de pago en Stripe (SIN email)
     try:
         payment_session_data = create_volunteer_payment_session(
-            user_email=user.email,
             case_price=50,
             metadata={"case_id": new_case.id}, 
             success_url=f"https://ateneoclinicoia.onrender.com/success?case_id={new_case.id}",
@@ -153,7 +144,7 @@ async def create_case(
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Error en la creación de la sesión de pago: {str(e)}")
 
-    # 5. Respuesta para redirección a Stripe
+    # 4. Respuesta para redirección a Stripe
     return {
         "message": "Caso enviado. Redirigiendo a pago Stripe.",
         "case_id": new_case.id,
@@ -161,7 +152,7 @@ async def create_case(
     }
 
 # ------------------------------------------------------------------
-# --- ENDPOINT 2: WEBHOOK DE STRIPE (ACTIVACIÓN DE IA) ---
+# --- ENDPOINT 2: WEBHOOK DE STRIPE (ACTIVA LA IA TRAS PAGO) ---
 # ------------------------------------------------------------------
 
 @router.post("/stripe-webhook")
@@ -177,25 +168,30 @@ async def stripe_webhook(
         event = stripe.Webhook.construct_event(
             payload, sig_header, STRIPE_WEBHOOK_SECRET
         )
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid payload")
-    except stripe.error.SignatureVerificationError:
-        raise HTTPException(status_code=400, detail="Invalid signature")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid signature or payload")
 
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
+        case_id = session['metadata'].get('case_id')
         stripe_session_id = session.get("id")
+
+        if not case_id:
+            return {"status": "error", "message": "Metadata (case_id) missing."}
         
-        case = db.query(Case).filter(Case.stripe_session_id == stripe_session_id).first()
+        case = db.query(Case).filter(Case.id == int(case_id)).first()
         
         if not case or case.is_paid:
             return {"status": "success", "message": "Case not found or already processed."}
 
+        # Estado Pagado -> Procesando IA
         case.is_paid = True
-        case.status = "paid"
+        case.stripe_session_id = stripe_session_id 
+        case.status = "processing"
         case.updated_at = datetime.datetime.utcnow()
         db.commit()
         
+        # Ejecutar la IA en segundo plano
         db_session_for_task = get_db().__next__()
         background_tasks.add_task(process_paid_case_task, case.id, db_session_for_task)
 
@@ -219,6 +215,6 @@ def my_cases(user_id: int, db: Session = Depends(get_db)):
             "title": c.title,
             "status": c.status,
             "is_paid": c.is_paid,
-            "ai_result": c.ai_result if c.is_paid and c.status == "completed" else "Análisis en progreso o pago pendiente."
+            "ai_result": c.ai_result if c.status == "completed" else "Análisis en progreso o pago pendiente."
         } for c in cases
     ]
