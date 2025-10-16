@@ -11,7 +11,6 @@ import asyncio
 
 # =========================================================================
 # 0. CONFIGURACIÓN DE SECRETOS
-# Asegúrese de que todas estas variables estén definidas en su entorno.
 # =========================================================================
 
 ADMIN_BYPASS_KEY = os.getenv("ADMIN_BYPASS_KEY")
@@ -139,6 +138,7 @@ def create_stripe_checkout_session(price: int, product_name: str, metadata: dict
 # =========================================================================
 # 3. HTML (Template para la Interfaz) - Diseño Limpio y Profesional
 # =========================================================================
+# NOTA: Todos los corchetes literales en CSS y JavaScript deben estar doblemente escapados ({{ y }}).
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -243,7 +243,7 @@ HTML_TEMPLATE = """
                     </div>
                 `;
             }}
-        }
+        }}
 
         async function submitForm(event, endpoint, formId) {{
             event.preventDefault();
@@ -409,6 +409,7 @@ def read_root():
     
     stripe_pk_display = STRIPE_PUBLISHABLE_KEY if STRIPE_PUBLISHABLE_KEY else "pk_test_UNDEFINED_KEY"
 
+    # Inyectamos la URL de Render y la clave publicable de Stripe en el HTML
     return HTMLResponse(content=HTML_TEMPLATE.format(
         RENDER_URL=RENDER_APP_URL,
         STRIPE_PK=stripe_pk_display,
