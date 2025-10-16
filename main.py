@@ -156,10 +156,10 @@ HTML_TEMPLATE = """
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* Fuente Inter para mejor legibilidad */
-        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
-        .card { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06); }
+        body {{ font-family: 'Inter', sans-serif; background-color: #f7f9fb; }}
+        .card {{ box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06); }}
         /* Estilo para la pestaña activa */
-        .tab-button.active { background-color: #10b981; color: white; }
+        .tab-button.active {{ background-color: #10b981; color: white; }}
     </style>
 </head>
 <body class="p-4 md:p-8 min-h-screen flex items-start justify-center">
@@ -178,13 +178,13 @@ HTML_TEMPLATE = """
                 // Flujo de pago real
                 resultsDiv.innerHTML = `
                     <div class="bg-yellow-100 border border-yellow-400 text-yellow-700 p-4 rounded-md mt-4">
-                        <p class="font-bold">Pago Requerido ($${response.price} ${response.currency}):</p>
+                        <p class="font-bold">Pago Requerido ($${{response.price}} \${{response.currency}}):</p>
                         <p>Redirigiendo a Stripe Checkout en 3 segundos...</p>
-                        <a href="${response.payment_url}" target="_blank" class="text-blue-600 underline hover:text-blue-800">
+                        <a href="${{response.payment_url}}" target="_blank" class="text-blue-600 underline hover:text-blue-800">
                             (Si la redirección falla, haga clic aquí para pagar)
                         </a>
                         <p class="mt-2 text-xs text-yellow-600">
-                            Usando STRIPE_PK (Public Key): ${STRIPE_PK}
+                            Usando STRIPE_PK (Public Key): ${{STRIPE_PK}}
                         </p>
                     </div>
                 `;
@@ -197,14 +197,14 @@ HTML_TEMPLATE = """
                     <div class="bg-green-100 border border-green-400 text-green-700 p-4 rounded-md mt-4">
                         <p class="font-bold">✅ Operación Exitosa (Bypass/Pago Realizado):</p>
                         <p class="text-sm text-gray-700 font-semibold mt-2">Detalles del Fulfillment:</p>
-                        <pre class="whitespace-pre-wrap text-sm">${JSON.stringify(response.fulfillment, null, 2)}</pre>
+                        <pre class="whitespace-pre-wrap text-sm">${{JSON.stringify(response.fulfillment, null, 2)}}</pre>
                         
-                        ${response.fulfillment.analysis_result ? `
+                        \${{response.fulfillment.analysis_result ? `
                             <p class="text-sm text-gray-700 font-semibold mt-4">Análisis de Gemini (Resultado Directo):</p>
                             <div class="bg-white p-3 rounded-md border border-green-200 mt-1">
-                                <p class="whitespace-pre-wrap text-gray-800 text-sm">${response.fulfillment.analysis_result.analysis_text || response.fulfillment.analysis_result.reason}</p>
+                                <p class="whitespace-pre-wrap text-gray-800 text-sm">\${{response.fulfillment.analysis_result.analysis_text || response.fulfillment.analysis_result.reason}}</p>
                             </div>
-                        ` : ''}
+                        ` : ''}}
 
                     </div>
                 `;
@@ -213,7 +213,7 @@ HTML_TEMPLATE = """
                 resultsDiv.innerHTML = `
                     <div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-md mt-4">
                         <p class="font-bold">Error o Respuesta Inesperada:</p>
-                        <pre class="whitespace-pre-wrap">${JSON.stringify(response, null, 2)}</pre>
+                        <pre class="whitespace-pre-wrap">${{JSON.stringify(response, null, 2)}}</pre>
                     </div>
                 `;
             }
@@ -229,7 +229,7 @@ HTML_TEMPLATE = """
                 const formData = new FormData(form);
                 if (!formData.has('user_id')) { formData.append('user_id', DEMO_USER_ID); }
 
-                const fullUrl = `${RENDER_APP_URL}${endpoint}`;
+                const fullUrl = `${{RENDER_APP_URL}}\${{endpoint}}`;
                 
                 const response = await fetch(fullUrl, {
                     method: 'POST',
@@ -240,7 +240,7 @@ HTML_TEMPLATE = """
                 
                 if (!response.ok) {
                     // Manejo de errores 4xx/5xx de FastAPI
-                    throw new Error(data.detail ? JSON.stringify(data.detail) : `Error ${response.status}: Error de servidor.`);
+                    throw new Error(data.detail ? JSON.stringify(data.detail) : `Error \${{response.status}}: Error de servidor.`);
                 }
 
                 handleResponse(data, formId);
@@ -250,7 +250,7 @@ HTML_TEMPLATE = """
                     <div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-md mt-4">
                         <p class="font-bold">Error de Conexión o Validación:</p>
                         <p>No se pudo completar la solicitud con la API.</p>
-                        <p class="mt-2 text-xs text-gray-700">Detalles: ${error.message}</p>
+                        <p class="mt-2 text-xs text-gray-700">Detalles: \${{error.message}}</p>
                     </div>
                 `;
                 console.error("Error en la solicitud:", error);
@@ -376,192 +376,4 @@ HTML_TEMPLATE = """
 
 </body>
 </html>
-"""
-
-@app.get("/", response_class=HTMLResponse)
-def read_root():
-    """Ruta principal que sirve la interfaz de usuario (HTML) con variables de entorno inyectadas."""
-    
-    # Preparamos las claves para inyección en el frontend. Usamos fallbacks si no están definidas.
-    stripe_pk_display = STRIPE_PUBLISHABLE_KEY if STRIPE_PUBLISHABLE_KEY else "pk_test_UNDEFINED_KEY"
-
-    # Inyectamos la URL de Render y la clave publicable de Stripe en el HTML
-    return HTMLResponse(content=HTML_TEMPLATE.format(
-        RENDER_URL=RENDER_APP_URL,
-        STRIPE_PK=stripe_pk_display,
-    ))
-
-# =========================================================================
-# 4. ENDPOINT PARA VOLUNTARIOS (Análisis de Caso) - Precio: $50 USD
-# =========================================================================
-
-@app.post("/volunteer/create-case")
-async def create_volunteer_case(
-    user_id: int = Form(...),
-    description: str = Form(...),
-    has_legal_consent: bool = Form(...),
-    developer_bypass_key: Optional[str] = Form(None),
-    file: Optional[UploadFile] = File(None)
-):
-    """
-    Inicia el proceso de pago. Si se usa la clave de bypass, ejecuta el análisis de Gemini directamente.
-    """
-    
-    product_name = "Análisis Clínico Voluntario"
-    price = 50
-    
-    # 1. Comprobación estricta de la clave de bypass de ADMINISTRADOR
-    if ADMIN_BYPASS_KEY and developer_bypass_key == ADMIN_BYPASS_KEY:
-        # Ejecutar el fulfillment directamente
-        gemini_response = await call_gemini_api(description)
-        
-        return {
-            "status": "success",
-            "payment_method": "ADMIN_BYPASS",
-            "fulfillment": {
-                "user_id": user_id,
-                "case_data": {"description_length": len(description)},
-                "analysis_result": gemini_response # Resultado directo de Gemini
-            }
-        }
-
-    # 2. Iniciar el flujo de pago real con Stripe
-    metadata = {
-        "user_id": str(user_id),
-        "service_type": "volunteer_case_analysis",
-        "description": description[:200] # Limitar la descripción para metadata
-    }
-    
-    return create_stripe_checkout_session(price, product_name, metadata)
-
-# =========================================================================
-# 5. ENDPOINT PARA PROFESIONALES (Activación de Herramienta) - Precio: $100 USD
-# =========================================================================
-
-@app.post("/professional/activate-tool")
-async def activate_professional_tool(
-    user_id: int = Form(...),
-    tool_name: str = Form(...),
-    developer_bypass_key: Optional[str] = Form(None)
-):
-    """
-    Inicia el proceso de pago. Si se usa la clave de bypass, simula la activación de la herramienta.
-    """
-    
-    product_name = f"Activación de Herramienta: {tool_name}"
-    price = 100
-    
-    # 1. Comprobación estricta de la clave de bypass de ADMINISTRADOR
-    if ADMIN_BYPASS_KEY and developer_bypass_key == ADMIN_BYPASS_KEY:
-        
-        return {
-            "status": "success",
-            "payment_method": "ADMIN_BYPASS",
-            "fulfillment": {
-                "user_id": user_id,
-                "tool_activated": tool_name,
-                "access_token": "TOKEN_DE_ACCESO_PROFESIONAL_GENERADO_BYPASS"
-            }
-        }
-
-    # 2. Iniciar el flujo de pago real con Stripe
-    metadata = {
-        "user_id": str(user_id),
-        "service_type": "professional_tool_activation",
-        "tool_name": tool_name
-    }
-    
-    return create_stripe_checkout_session(price, product_name, metadata)
-
-
-# =========================================================================
-# 6. ENDPOINT DE STRIPE WEBHOOK (Manejo de Pagos Exitosos)
-# =========================================================================
-
-@app.post("/stripe/webhook")
-async def stripe_webhook(request: Request):
-    """
-    Endpoint para recibir eventos de Stripe, principalmente 'checkout.session.completed',
-    para realizar el fulfillment (entrega del servicio).
-    """
-    payload = await request.body()
-    sig_header = request.headers.get('stripe-signature')
-    event = None
-
-    if not STRIPE_WEBHOOK_SECRET:
-        print("ADVERTENCIA: STRIPE_WEBHOOK_SECRET no configurado. No se puede verificar la firma.")
-        raise HTTPException(status_code=400, detail="Webhook secret not configured.")
-
-    try:
-        # Verificar y parsear el evento de Stripe
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, STRIPE_WEBHOOK_SECRET
-        )
-    except ValueError as e:
-        # Firma o payload inválido
-        print(f"Error de Payload: {e}")
-        return JSONResponse(content={"error": "Invalid payload"}, status_code=400)
-    except stripe.error.SignatureVerificationError as e:
-        # Firma inválida
-        print(f"Error de Firma: {e}")
-        return JSONResponse(content={"error": "Invalid signature"}, status_code=400)
-
-    # Manejar el evento
-    if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
-        
-        # Extraer metadatos de la sesión
-        user_id = session['metadata'].get('user_id')
-        service_type = session['metadata'].get('service_type')
-        
-        print(f"Pago exitoso para User ID: {user_id}, Tipo: {service_type}. Iniciando Fulfillment...")
-        
-        # Lógica de fulfillment basada en el tipo de servicio
-        if service_type == "volunteer_case_analysis":
-            # Caso Voluntario: Ejecutar Análisis Gemini
-            description = session['metadata'].get('description', 'Descripción no disponible.')
-            # En un entorno real, aquí se recuperaría la descripción completa del caso desde una DB.
-            gemini_response = await call_gemini_api(description)
-            print(f"Análisis Gemini finalizado para el caso de voluntario: {gemini_response['analysis_status']}")
-            # Aquí iría el código para guardar/enviar el resultado final al usuario.
-            
-        elif service_type == "professional_tool_activation":
-            # Caso Profesional: Activar Herramienta
-            tool_name = session['metadata'].get('tool_name', 'Herramienta desconocida')
-            # Aquí iría el código para actualizar la base de datos del usuario (DB)
-            print(f"Activando la herramienta '{tool_name}' en la base de datos para el usuario {user_id}.")
-            
-        # Marca la sesión como procesada para evitar reejecuciones
-        stripe.checkout.Session.modify(
-            session['id'],
-            metadata={'fulfilled': 'true'}
-        )
-        
-    return JSONResponse(content={"status": "success"}, status_code=200)
-
-# =========================================================================
-# 7. Páginas de Redirección (Post-Stripe)
-# =========================================================================
-
-@app.get("/stripe/success", response_class=HTMLResponse)
-def stripe_success(session_id: str):
-    """Página de éxito de Stripe Checkout."""
-    return f"""
-    <body class="p-8 bg-green-50 text-center">
-        <h1 class="text-4xl text-green-700 font-bold mb-4">¡Pago Exitoso!</h1>
-        <p class="text-lg text-gray-600">Su solicitud ha sido recibida. El ID de su sesión es: <code class="font-mono">{session_id}</code>.</p>
-        <p class="mt-4 text-gray-700">El servicio (análisis o activación) se está procesando a través del Webhook de Stripe.</p>
-        <a href="{RENDER_APP_URL}" class="mt-6 inline-block py-2 px-4 bg-green-600 text-white rounded-lg hover:bg-green-700">Volver al Inicio</a>
-    </body>
-    """
-
-@app.get("/stripe/cancel", response_class=HTMLResponse)
-def stripe_cancel():
-    """Página de cancelación de Stripe Checkout."""
-    return f"""
-    <body class="p-8 bg-red-50 text-center">
-        <h1 class="text-4xl text-red-700 font-bold mb-4">Pago Cancelado</h1>
-        <p class="text-lg text-gray-600">Su pago fue cancelado. No se le ha cobrado.</p>
-        <a href="{RENDER_APP_URL}" class="mt-6 inline-block py-2 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700">Volver al Inicio</a>
-    </body>
-    """
+"""eof
