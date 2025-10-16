@@ -9,6 +9,7 @@ from google import genai
 from google.genai.errors import APIError
 import asyncio 
 import time
+import base64 # Necesario para la codificación de archivos
 
 # =========================================================================
 # 0. CONFIGURACIÓN DE SECRETOS, TIERS Y ADD-ONS
@@ -67,7 +68,7 @@ app.add_middleware(
 # 2. UTILITY FUNCTIONS (Funciones de Soporte)
 # =========================================================================
 
-async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optional[bytes] = None):
+async def call_gemini_api(prompt: str, token_instruction: str, base64_image_data: Optional[str] = None):
     """
     Genera el análisis clínico con instrucciones específicas para control de tokens 
     y maneja la entrada multimodal (texto + imagen).
@@ -86,7 +87,7 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
     system_instruction = (
         f"Eres un analista clínico experto. **Tu análisis DEBE ser un 'Servicio Completo' incluyendo OBLIGATORIAMENTE una sección de TRATAMIENTO MEDICAMENTOSO (Farmacológico)** para debate, sin importar el nivel. "
         "El objetivo es proveer una respuesta para debate profesional y educativo. "
-        f"ALERTA CRÍTICA: Debes comenzar tu respuesta con la siguiente ADVERTENCIA CLARA en mayúsculas: 'ADVERTENCIA: TRATAMIENTO EXPERIMENTAL. ESTE ANÁLISIS, INCLUYENDO EL TRATAMIENTO FARMACOLÓGICO SUGERIDO, NO ES REAL, ES EXPERIMENTAL Y TIENE FINES EXCLUSIVOS DE DEBATE Y ENTRENAMIENTO PARA PROFESIONALES DE SALUD LICENCIADOS. NUNCA DEBE APLICARSE EN PACIENTES REALES. EL VOLUNTARIO GANA AYUDANDO A DESARROLLAR ESTE DEBATE.' "
+        "ALERTA CRÍTICA: Debes comenzar tu respuesta con la siguiente ADVERTENCIA CLARA en mayúsculas: 'ADVERTENCIA: TRATAMIENTO EXPERIMENTAL. ESTE ANÁLISIS, INCLUYENDO EL TRATAMIENTO FARMACOLÓGICO SUGERIDO, NO ES REAL, ES EXPERIMENTAL Y TIENE FINES EXCLUSIVOS DE DEBATE Y ENTRENAMIENTO PARA PROFESIONALES DE SALUD LICENCIADOS. NUNCA DEBE APLICARSE EN PACIENTES REALES. EL VOLUNTARIO GANA AYUDANDO A DESARROLLAR ESTE DEBATE.' "
         f"{token_instruction} Analiza el caso. Detecta automáticamente el idioma de la consulta y responde íntegramente en ese mismo idioma. "
     )
 
@@ -94,13 +95,14 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
     parts = []
     
     # Agregar la imagen si existe
-    if image_data:
-        # Nota: La simulación de archivo aquí asume que es una imagen simple (e.g., JPEG/PNG). 
-        # En una implementación real, se necesitaría un manejo de MIME type más robusto.
+    if base64_image_data:
+        # Se asume que el mimeType es 'image/jpeg' o 'image/png' para este ejercicio.
+        # En una versión robusta, se determinaría el mimeType real del archivo subido.
+        # Gemini soporta varios formatos, pero nos enfocamos en los más comunes para este proyecto.
         parts.append({
             "inlineData": {
                 "mimeType": "image/jpeg", 
-                "data": image_data.decode('latin1') # Decodificación simple a base64
+                "data": base64_image_data
             }
         })
         
@@ -135,7 +137,7 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
             "prompt_used": prompt
         }
     except Exception as e:
-        print(f"Error inesperado con Gemini: {e}")
+        print(f"Error desconocido con Gemini: {e}")
         return {
             "analysis_status": "error",
             "reason": f"Error desconocido al llamar a Gemini: {e}",
@@ -191,17 +193,16 @@ async def fulfill_case(metadata: Dict[str, Any]):
         token_instruction += " " + ADDONS["image_analysis"]["instruction_boost"]
         # Aquí se debería recuperar el archivo adjunto (que fue temporalmente almacenado)
         # Por seguridad y simplicidad de la demo, solo confirmamos que el pago activa la INSTRUCCIÓN
-        image_data_simulated = True 
+        base64_image_data = None # En la demo del webhook, no hay archivo real para leer.
     else:
-        image_data_simulated = False
+        base64_image_data = None
         
     
     description_snippet = metadata.get("description_snippet", "Caso clínico no especificado.")
     prompt = f"Analizar el siguiente caso clínico: {description_snippet}"
     
     # SIMULACIÓN DE LA LLAMADA: Asumimos que no hay datos binarios reales para la imagen en el webhook
-    # Si hubiera una imagen, se enviaría el binario en 'image_data'.
-    analysis_result = await call_gemini_api(prompt, token_instruction, image_data=None) 
+    analysis_result = await call_gemini_api(prompt, token_instruction, base64_image_data=base64_image_data) 
     
     print(f"🔬 Análisis de IA completado (Nivel {level}) para el usuario {user_id}. Estado: {analysis_result.get('analysis_status')}")
     
@@ -238,23 +239,46 @@ async def create_service(
         # 1.1. Construir la instrucción de tokens base
         prompt_instruction = tier_info["token_instruction"]
         
-        # 1.2. Añadir boost de tokens si se incluyó el add-on de imagen
-        if include_image_analysis and clinical_file:
-            prompt_instruction += " " + ADDONS["image_analysis"]["instruction_boost"]
+        # 1.2. Preparar la data de la imagen para la llamada multimodal
+        base64_image_data = None
         
+        if include_image_analysis and clinical_file and clinical_file.file:
+            prompt_instruction += " " + ADDONS["image_analysis"]["instruction_boost"]
+            
+            # Validación simple del tipo MIME para ser más amigable (aunque Base64 maneja errores más profundos)
+            # Solo permitimos tipos de imagen comunes
+            if clinical_file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
+                return JSONResponse(
+                    content={
+                        "status": "error",
+                        "detail": f"Error de formato de archivo. Solo se aceptan formatos de imagen comunes: JPEG, PNG, WEBP. Se recibió: {clinical_file.content_type}",
+                    },
+                    status_code=400
+                )
+            
+            # --- CORRECCIÓN DE ESTABILIDAD CRÍTICA (Manejo de Archivos) ---
+            try:
+                # Leer el contenido del archivo si existe
+                file_contents = await clinical_file.read()
+                # Codificar la imagen para el envío a Gemini (base64)
+                base64_image_data = base64.b64encode(file_contents).decode('utf-8')
+                
+            except Exception as e:
+                # Enviar un error JSON limpio al frontend si falla la lectura/codificación del archivo
+                print(f"ERROR: Fallo al procesar archivo adjunto: {e}")
+                return JSONResponse(
+                    content={
+                        "status": "error",
+                        "detail": f"Error de procesamiento de archivo. Intente con un archivo de menor tamaño o diferente formato. Detalle: {e}",
+                    },
+                    status_code=500
+                )
+            # --- FIN DE CORRECCIÓN ---
+
         prompt = description if description else "Caso clínico no especificado. Análisis genérico de salud preventiva."
         
-        # Preparar la data de la imagen para la llamada multimodal
-        image_data_base64 = None
-        if clinical_file and clinical_file.file:
-            # Leer el contenido del archivo si existe (necesario para el bypass multimodal)
-            file_contents = await clinical_file.read()
-            # Codificar la imagen para el envío a Gemini (simulación: base64 en latin1)
-            import base64
-            image_data_base64 = base64.b64encode(file_contents).decode('latin1')
-            
         # Ejecutar análisis con la instrucción de tokens del nivel seleccionado
-        analysis_result = await call_gemini_api(prompt, prompt_instruction, image_data=image_data_base64)
+        analysis_result = await call_gemini_api(prompt, prompt_instruction, base64_image_data=base64_image_data)
         file_info = clinical_file.filename if clinical_file else None
         
         # En el bypass, el audio se considera siempre 'incluido' si se solicitó o si el nivel lo incluye
@@ -701,6 +725,19 @@ HTML_TEMPLATE = """
         function handleResponse(response) {
             const resultsDiv = document.getElementById('results-section');
             resultsDiv.innerHTML = ''; 
+
+            if (response.status === "error") {
+                 // Manejar el error de manera limpia con formato JSON
+                resultsDiv.innerHTML = `
+                    <div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-xl mt-4 animate-fadeIn">
+                        <p class="font-bold">🚨 Error de Proceso del Servidor (JSON Válido):</p>
+                        <p>No se pudo completar la solicitud. Razón:</p>
+                        <pre class="whitespace-pre-wrap text-xs bg-red-50 p-2 rounded-lg mt-2">${response.detail || response.reason || 'Error de servidor no especificado.'}</pre>
+                        <p class="text-sm mt-2">Por favor, intente de nuevo o revise la configuración de la clave de bypass si es la primera vez.</p>
+                    </div>
+                `;
+                return;
+            }
             
             if (response.payment_url) {
                 // Flujo de pago real (Stripe)
@@ -758,9 +795,10 @@ HTML_TEMPLATE = """
                     </div>
                 `;
             } else {
+                // Este bloque captura errores genéricos no manejados por la nueva estructura
                 resultsDiv.innerHTML = `
                     <div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-xl mt-4">
-                        <p class="font-bold">🚨 Error de Conexión o Proceso:</p>
+                        <p class="font-bold">🚨 Error de Conexión o Proceso (Falló la Detección):</p>
                         <p>No se pudo completar la solicitud con la API.</p>
                         <pre class="whitespace-pre-wrap text-xs">${JSON.stringify(response, null, 2)}</pre>
                     </div>
@@ -802,10 +840,23 @@ HTML_TEMPLATE = """
                     body: formData 
                 });
 
-                const data = await response.json();
+                // Intentar siempre obtener JSON, pero manejar si la respuesta no es OK
+                let data;
+                try {
+                    data = await response.json();
+                } catch (e) {
+                    // Si falla la decodificación a JSON, y la respuesta NO es OK (ej. 500 error plano)
+                    if (!response.ok) {
+                        data = { status: "error", detail: `Respuesta del Servidor HTTP ${response.status} sin formato JSON. Esto debería estar corregido. Intente nuevamente.`, reason: await response.text() };
+                    } else {
+                        // Si la respuesta fue 200/201 pero el JSON no fue válido (ej. un caso de borde del Gemini API)
+                         data = { status: "error", detail: `Respuesta 200 OK, pero el JSON estaba roto. Por favor, intente de nuevo.`, reason: await response.text() };
+                    }
+                }
                 
-                if (!response.ok) {
-                    throw new Error(data.detail ? JSON.stringify(data.detail) : `Error ${response.status}: Error de servidor.`);
+                if (!response.ok && data.status !== "error") {
+                    // Si el código de estado es de error (4xx o 5xx) pero el body no es un JSON de error de nuestra app
+                    data = { status: "error", detail: `Error HTTP ${response.status}.`, reason: JSON.stringify(data) };
                 }
 
                 handleResponse(data);
@@ -813,8 +864,8 @@ HTML_TEMPLATE = """
             } catch (error) {
                 resultsDiv.innerHTML = `
                     <div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-xl mt-4">
-                        <p class="font-bold">🚨 Error de Conexión o Proceso:</p>
-                        <p>No se pudo completar la solicitud con la API.</p>
+                        <p class="font-bold">🚨 Error de Red o Conexión Inicial:</p>
+                        <p>No se pudo establecer contacto con el servidor.</p>
                         <p class="mt-2 text-xs text-gray-700">Detalles: ${error.message}</p>
                     </div>
                 `;
@@ -906,7 +957,10 @@ HTML_TEMPLATE = """
                         <label for="clinical_file" class="block text-sm font-medium text-gray-700 mb-1">
                             Archivos Adjuntos (Para Análisis de Imagen)
                         </label>
-                        <input type="file" id="clinical_file" name="clinical_file" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                        <input type="file" id="clinical_file" name="clinical_file" 
+                                class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                                accept="image/jpeg, image/png, image/webp"/> <!-- Acepta solo estos tipos en el navegador -->
+                        <p class="text-xs text-gray-500 mt-1">Formatos aceptados: **JPEG, PNG, WEBP** (máx. 4MB).</p>
                     </div>
                 </div>
             </div>
