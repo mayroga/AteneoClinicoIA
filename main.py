@@ -4,12 +4,13 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from typing import Optional
 import os 
 import json
-import httpx # Necesario para realizar llamadas HTTP asíncronas (e.g., a la API de Gemini)
 import stripe # SDK de Stripe
+from google import genai # SDK oficial de Google GenAI
+from google.genai.errors import APIError
+import asyncio # Necesario para ejecutar el SDK síncrono de Gemini de forma asíncrona
 
 # =========================================================================
 # 0. CONFIGURACIÓN DE SECRETOS (CLAVES DE BYPASS Y API)
-# Se leen directamente de las variables de entorno de Render.
 # ¡CRÍTICO! Asegúrate de que todas estas variables estén definidas en Render.
 # =========================================================================
 ADMIN_BYPASS_KEY = os.getenv("ADMIN_BYPASS_KEY")
@@ -19,11 +20,20 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 RENDER_APP_URL = os.getenv("RENDER_APP_URL", "https://ateneoclinicoia.onrender.com")
 
-# Inicialización de Stripe con la clave secreta
+# Inicialización de Stripe
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
 else:
     print("ADVERTENCIA: STRIPE_SECRET_KEY no definida. El pago real no funcionará.")
+
+# Inicialización del Cliente de Gemini (para uso síncrono seguro)
+gemini_client = None
+if GEMINI_API_KEY:
+    try:
+        # Inicializa el cliente de Gemini con la clave de API
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    except Exception as e:
+        print(f"Error inicializando el cliente de Gemini: {e}. El análisis de IA no funcionará.")
 
 # Inicialización de la aplicación FastAPI
 app = FastAPI(title="Ateneo Clínico IA Backend API")
@@ -47,60 +57,59 @@ app.add_middleware(
 
 async def call_gemini_api(prompt: str):
     """
-    Realiza la llamada a la API de Gemini para generar el análisis clínico.
-    Esta función se ejecuta al completar el pago (webhook) o al usar el bypass.
+    Realiza la llamada a la API de Gemini para generar el análisis clínico
+    usando el SDK oficial (google-genai). Usa asyncio.to_thread para no bloquear
+    el loop asíncrono de FastAPI.
     """
-    if not GEMINI_API_KEY:
+    if not gemini_client:
         return {
             "analysis_status": "error",
-            "reason": "GEMINI_API_KEY no configurada. No se pudo generar el análisis.",
+            "reason": "GEMINI_API_KEY no configurada o cliente Gemini no inicializado.",
             "prompt_used": prompt
         }
     
-    # URL de la API de Gemini (usando un modelo flash para velocidad)
-    api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
-    
-    headers = {
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "systemInstruction": "Eres un analista clínico experto. Genera un resumen conciso y profesional del caso, incluyendo posibles diagnósticos diferenciales y pasos sugeridos, limitándote a un máximo de 300 palabras.",
-        "config": {
-            "apiKey": GEMINI_API_KEY
-        }
-    }
-
+    def blocking_call():
+        """Función síncrona que envuelve la llamada al cliente de Gemini."""
+        response = gemini_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=dict(
+                system_instruction="Eres un analista clínico experto. Genera un resumen conciso y profesional del caso, incluyendo posibles diagnósticos diferenciales y pasos sugeridos, limitándote a un máximo de 300 palabras."
+            )
+        )
+        return response.text
+        
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(api_url, headers=headers, json=payload, timeout=30)
-            response.raise_for_status()
+        # Ejecuta la llamada síncrona en un hilo separado
+        analysis_text = await asyncio.to_thread(blocking_call)
+        
+        return {
+            "analysis_status": "success",
+            "analysis_text": analysis_text
+        }
             
-            gemini_result = response.json()
-            analysis_text = gemini_result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "Análisis no disponible.")
-            
-            return {
-                "analysis_status": "success",
-                "analysis_text": analysis_text
-            }
-            
-    except httpx.HTTPError as e:
+    except APIError as e:
+        print(f"Error de API de Gemini: {e}")
         return {
             "analysis_status": "error",
-            "reason": f"Error HTTP al llamar a Gemini: {e}",
+            "reason": f"Error de API de Gemini: {e}",
             "prompt_used": prompt
         }
     except Exception as e:
+        print(f"Error inesperado con Gemini: {e}")
         return {
             "analysis_status": "error",
-            "reason": f"Error inesperado en la API de Gemini: {e}",
+            "reason": f"Error inesperado con Gemini: {e}",
             "prompt_used": prompt
         }
+
 
 def create_stripe_checkout_session(price: int, product_name: str, metadata: dict):
     """Crea una sesión de Stripe Checkout y retorna el URL de pago."""
     
+    if not stripe.api_key:
+        raise HTTPException(status_code=500, detail="La clave secreta de Stripe no está configurada. Imposible crear sesión de pago real.")
+        
     success_url = f"{RENDER_APP_URL}/stripe/success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{RENDER_APP_URL}/stripe/cancel"
     
@@ -112,7 +121,7 @@ def create_stripe_checkout_session(price: int, product_name: str, metadata: dict
                     'currency': 'usd',
                     'product_data': {
                         'name': product_name,
-                        'metadata': {'type': metadata.get('type')}
+                        'metadata': {'type': metadata.get('service_type')}
                     },
                     'unit_amount': price * 100, # Stripe usa centavos
                 },
@@ -125,11 +134,11 @@ def create_stripe_checkout_session(price: int, product_name: str, metadata: dict
         )
         return {"status": "payment_required", "payment_url": session.url, "price": price, "currency": "USD"}
     
-    except stripe.error.InvalidRequestError as e:
-        print(f"Error de solicitud de Stripe: {e}")
-        raise HTTPException(status_code=500, detail=f"Error en la configuración de Stripe: {e}")
+    except stripe.error.StripeError as e:
+        print(f"Error de Stripe: {e}")
+        raise HTTPException(status_code=500, detail=f"Error en la API de Stripe: {e}")
     except Exception as e:
-        print(f"Error inesperado de Stripe: {e}")
+        print(f"Error desconocido al crear la sesión de pago: {e}")
         raise HTTPException(status_code=500, detail="Error desconocido al crear la sesión de pago.")
 
 # =========================================================================
@@ -187,7 +196,16 @@ HTML_TEMPLATE = """
                  resultsDiv.innerHTML = `
                     <div class="bg-green-100 border border-green-400 text-green-700 p-4 rounded-md mt-4">
                         <p class="font-bold">✅ Operación Exitosa (Bypass/Pago Realizado):</p>
-                        <pre class="whitespace-pre-wrap">${JSON.stringify(response, null, 2)}</pre>
+                        <p class="text-sm text-gray-700 font-semibold mt-2">Detalles del Fulfillment:</p>
+                        <pre class="whitespace-pre-wrap text-sm">${JSON.stringify(response.fulfillment, null, 2)}</pre>
+                        
+                        ${response.fulfillment.analysis_result ? `
+                            <p class="text-sm text-gray-700 font-semibold mt-4">Análisis de Gemini (Resultado Directo):</p>
+                            <div class="bg-white p-3 rounded-md border border-green-200 mt-1">
+                                <p class="whitespace-pre-wrap text-gray-800 text-sm">${response.fulfillment.analysis_result.analysis_text || response.fulfillment.analysis_result.reason}</p>
+                            </div>
+                        ` : ''}
+
                     </div>
                 `;
             } else {
@@ -221,6 +239,7 @@ HTML_TEMPLATE = """
                 const data = await response.json();
                 
                 if (!response.ok) {
+                    // Manejo de errores 4xx/5xx de FastAPI
                     throw new Error(data.detail ? JSON.stringify(data.detail) : `Error ${response.status}: Error de servidor.`);
                 }
 
@@ -374,7 +393,6 @@ def read_root():
 
 # =========================================================================
 # 4. ENDPOINT PARA VOLUNTARIOS (Análisis de Caso) - Precio: $50 USD
-# RUTA: /volunteer/create-case
 # =========================================================================
 
 @app.post("/volunteer/create-case")
@@ -418,7 +436,6 @@ async def create_volunteer_case(
 
 # =========================================================================
 # 5. ENDPOINT PARA PROFESIONALES (Activación de Herramienta) - Precio: $100 USD
-# RUTA: /professional/activate-tool
 # =========================================================================
 
 @app.post("/professional/activate-tool")
@@ -459,7 +476,6 @@ async def activate_professional_tool(
 
 # =========================================================================
 # 6. ENDPOINT DE STRIPE WEBHOOK (Manejo de Pagos Exitosos)
-# RUTA: /stripe/webhook
 # =========================================================================
 
 @app.post("/stripe/webhook")
@@ -504,16 +520,16 @@ async def stripe_webhook(request: Request):
         if service_type == "volunteer_case_analysis":
             # Caso Voluntario: Ejecutar Análisis Gemini
             description = session['metadata'].get('description', 'Descripción no disponible.')
-            # En un entorno real, aquí se procesaría el caso completo, no solo el fragmento de metadata.
+            # En un entorno real, aquí se recuperaría la descripción completa del caso desde una DB.
             gemini_response = await call_gemini_api(description)
             print(f"Análisis Gemini finalizado para el caso de voluntario: {gemini_response['analysis_status']}")
-            # Aquí iría el código para guardar/enviar el resultado al usuario.
+            # Aquí iría el código para guardar/enviar el resultado final al usuario.
             
         elif service_type == "professional_tool_activation":
             # Caso Profesional: Activar Herramienta
             tool_name = session['metadata'].get('tool_name', 'Herramienta desconocida')
-            print(f"Activando la herramienta '{tool_name}' para el usuario {user_id}.")
-            # Aquí iría el código para actualizar la base de datos del usuario, generar un token, etc.
+            # Aquí iría el código para actualizar la base de datos del usuario (DB)
+            print(f"Activando la herramienta '{tool_name}' en la base de datos para el usuario {user_id}.")
             
         # Marca la sesión como procesada para evitar reejecuciones
         stripe.checkout.Session.modify(
