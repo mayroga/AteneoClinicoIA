@@ -561,6 +561,4 @@ HTML_TEMPLATE = """
 
 </body>
 </html>
-"""eof
-
-He eliminado el texto problemático y he verificado que el resto del archivo es código Python ejecutable. El error `SyntaxError` debería estar resuelto. Por favor, intente ejecutar de nuevo.
+"""
