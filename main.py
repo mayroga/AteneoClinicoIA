@@ -143,6 +143,8 @@ def create_stripe_checkout_session(price: int, product_name: str, metadata: dict
 
 # =========================================================================
 # 3. HTML (Template para la Interfaz)
+# NOTA: Las llaves internas de CSS/JS (que no son placeholders de Python) deben 
+# ser escapadas con doble llave {{ y }} para evitar el error de KeyError.
 # =========================================================================
 
 HTML_TEMPLATE = """
@@ -190,7 +192,7 @@ HTML_TEMPLATE = """
                 `;
                 setTimeout(() => {
                     window.location.href = response.payment_url; 
-                }, 3000);
+                }}, 3000);
             } else if (response.status === "success") {
                 // Flujo de éxito (incluyendo Bypass y resultados del análisis Gemini)
                  resultsDiv.innerHTML = `
@@ -376,4 +378,192 @@ HTML_TEMPLATE = """
 
 </body>
 </html>
-"""eof
+"""
+
+@app.get("/", response_class=HTMLResponse)
+def read_root():
+    """Ruta principal que sirve la interfaz de usuario (HTML) con variables de entorno inyectadas."""
+    
+    # Preparamos las claves para inyección en el frontend. Usamos fallbacks si no están definidas.
+    stripe_pk_display = STRIPE_PUBLISHABLE_KEY if STRIPE_PUBLISHABLE_KEY else "pk_test_UNDEFINED_KEY"
+
+    # Inyectamos la URL de Render y la clave publicable de Stripe en el HTML
+    return HTMLResponse(content=HTML_TEMPLATE.format(
+        RENDER_URL=RENDER_APP_URL,
+        STRIPE_PK=stripe_pk_display,
+    ))
+
+# =========================================================================
+# 4. ENDPOINT PARA VOLUNTARIOS (Análisis de Caso) - Precio: $50 USD
+# =========================================================================
+
+@app.post("/volunteer/create-case")
+async def create_volunteer_case(
+    user_id: int = Form(...),
+    description: str = Form(...),
+    has_legal_consent: bool = Form(...),
+    developer_bypass_key: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None)
+):
+    """
+    Inicia el proceso de pago. Si se usa la clave de bypass, ejecuta el análisis de Gemini directamente.
+    """
+    
+    product_name = "Análisis Clínico Voluntario"
+    price = 50
+    
+    # 1. Comprobación estricta de la clave de bypass de ADMINISTRADOR
+    if ADMIN_BYPASS_KEY and developer_bypass_key == ADMIN_BYPASS_KEY:
+        # Ejecutar el fulfillment directamente
+        gemini_response = await call_gemini_api(description)
+        
+        return {
+            "status": "success",
+            "payment_method": "ADMIN_BYPASS",
+            "fulfillment": {
+                "user_id": user_id,
+                "case_data": {"description_length": len(description)},
+                "analysis_result": gemini_response # Resultado directo de Gemini
+            }
+        }
+
+    # 2. Iniciar el flujo de pago real con Stripe
+    metadata = {
+        "user_id": str(user_id),
+        "service_type": "volunteer_case_analysis",
+        "description": description[:200] # Limitar la descripción para metadata
+    }
+    
+    return create_stripe_checkout_session(price, product_name, metadata)
+
+# =========================================================================
+# 5. ENDPOINT PARA PROFESIONALES (Activación de Herramienta) - Precio: $100 USD
+# =========================================================================
+
+@app.post("/professional/activate-tool")
+async def activate_professional_tool(
+    user_id: int = Form(...),
+    tool_name: str = Form(...),
+    developer_bypass_key: Optional[str] = Form(None)
+):
+    """
+    Inicia el proceso de pago. Si se usa la clave de bypass, simula la activación de la herramienta.
+    """
+    
+    product_name = f"Activación de Herramienta: {tool_name}"
+    price = 100
+    
+    # 1. Comprobación estricta de la clave de bypass de ADMINISTRADOR
+    if ADMIN_BYPASS_KEY and developer_bypass_key == ADMIN_BYPASS_KEY:
+        
+        return {
+            "status": "success",
+            "payment_method": "ADMIN_BYPASS",
+            "fulfillment": {
+                "user_id": user_id,
+                "tool_activated": tool_name,
+                "access_token": "TOKEN_DE_ACCESO_PROFESIONAL_GENERADO_BYPASS"
+            }
+        }
+
+    # 2. Iniciar el flujo de pago real con Stripe
+    metadata = {
+        "user_id": str(user_id),
+        "service_type": "professional_tool_activation",
+        "tool_name": tool_name
+    }
+    
+    return create_stripe_checkout_session(price, product_name, metadata)
+
+
+# =========================================================================
+# 6. ENDPOINT DE STRIPE WEBHOOK (Manejo de Pagos Exitosos)
+# =========================================================================
+
+@app.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    """
+    Endpoint para recibir eventos de Stripe, principalmente 'checkout.session.completed',
+    para realizar el fulfillment (entrega del servicio).
+    """
+    payload = await request.body()
+    sig_header = request.headers.get('stripe-signature')
+    event = None
+
+    if not STRIPE_WEBHOOK_SECRET:
+        print("ADVERTENCIA: STRIPE_WEBHOOK_SECRET no configurado. No se puede verificar la firma.")
+        raise HTTPException(status_code=400, detail="Webhook secret not configured.")
+
+    try:
+        # Verificar y parsear el evento de Stripe
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
+    except ValueError as e:
+        # Firma o payload inválido
+        print(f"Error de Payload: {e}")
+        return JSONResponse(content={"error": "Invalid payload"}, status_code=400)
+    except stripe.error.SignatureVerificationError as e:
+        # Firma inválida
+        print(f"Error de Firma: {e}")
+        return JSONResponse(content={"error": "Invalid signature"}, status_code=400)
+
+    # Manejar el evento
+    if event['type'] == 'checkout.session.completed':
+        session = event['data']['object']
+        
+        # Extraer metadatos de la sesión
+        user_id = session['metadata'].get('user_id')
+        service_type = session['metadata'].get('service_type')
+        
+        print(f"Pago exitoso para User ID: {user_id}, Tipo: {service_type}. Iniciando Fulfillment...")
+        
+        # Lógica de fulfillment basada en el tipo de servicio
+        if service_type == "volunteer_case_analysis":
+            # Caso Voluntario: Ejecutar Análisis Gemini
+            description = session['metadata'].get('description', 'Descripción no disponible.')
+            # En un entorno real, aquí se recuperaría la descripción completa del caso desde una DB.
+            gemini_response = await call_gemini_api(description)
+            print(f"Análisis Gemini finalizado para el caso de voluntario: {gemini_response['analysis_status']}")
+            # Aquí iría el código para guardar/enviar el resultado final al usuario.
+            
+        elif service_type == "professional_tool_activation":
+            # Caso Profesional: Activar Herramienta
+            tool_name = session['metadata'].get('tool_name', 'Herramienta desconocida')
+            # Aquí iría el código para actualizar la base de datos del usuario (DB)
+            print(f"Activando la herramienta '{tool_name}' en la base de datos para el usuario {user_id}.")
+            
+        # Marca la sesión como procesada para evitar reejecuciones
+        stripe.checkout.Session.modify(
+            session['id'],
+            metadata={'fulfilled': 'true'}
+        )
+        
+    return JSONResponse(content={"status": "success"}, status_code=200)
+
+# =========================================================================
+# 7. Páginas de Redirección (Post-Stripe)
+# =========================================================================
+
+@app.get("/stripe/success", response_class=HTMLResponse)
+def stripe_success(session_id: str):
+    """Página de éxito de Stripe Checkout."""
+    return f"""
+    <body class="p-8 bg-green-50 text-center">
+        <h1 class="text-4xl text-green-700 font-bold mb-4">¡Pago Exitoso!</h1>
+        <p class="text-lg text-gray-600">Su solicitud ha sido recibida. El ID de su sesión es: <code class="font-mono">{session_id}</code>.</p>
+        <p class="mt-4 text-gray-700">El servicio (análisis o activación) se está procesando a través del Webhook de Stripe.</p>
+        <a href="{RENDER_APP_URL}" class="mt-6 inline-block py-2 px-4 bg-green-600 text-white rounded-lg hover:bg-green-700">Volver al Inicio</a>
+    </body>
+    """
+
+@app.get("/stripe/cancel", response_class=HTMLResponse)
+def stripe_cancel():
+    """Página de cancelación de Stripe Checkout."""
+    return f"""
+    <body class="p-8 bg-red-50 text-center">
+        <h1 class="text-4xl text-red-700 font-bold mb-4">Pago Cancelado</h1>
+        <p class="text-lg text-gray-600">Su pago fue cancelado. No se le ha cobrado.</p>
+        <a href="{RENDER_APP_URL}" class="mt-6 inline-block py-2 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700">Volver al Inicio</a>
+    </body>
+    """
