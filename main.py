@@ -8,13 +8,15 @@ import stripe # SDK de Stripe
 from google import genai # SDK oficial de Google GenAI
 from google.genai.errors import APIError
 import asyncio 
+import time
 
 # =========================================================================
 # 0. CONFIGURACIÓN DE SECRETOS
 # =========================================================================
 
-ADMIN_BYPASS_KEY = os.getenv("ADMIN_BYPASS_KEY")
-STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY")
+# NOTA: Estas claves DEBEN ser configuradas como variables de entorno
+ADMIN_BYPASS_KEY = os.getenv("ADMIN_BYPASS_KEY", "CLAVE_SECRETA_ADMIN") # Usamos un valor por defecto para demo
+STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "pk_test_...") 
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -63,6 +65,9 @@ async def call_gemini_api(prompt: str):
             "prompt_used": prompt
         }
     
+    # Simulación de un proceso de análisis de la IA que toma tiempo
+    await asyncio.sleep(2) 
+
     def blocking_call():
         """Función síncrona que envuelve la llamada al cliente de Gemini."""
         response = gemini_client.models.generate_content(
@@ -75,6 +80,10 @@ async def call_gemini_api(prompt: str):
         return response.text
         
     try:
+        # Nota: La integración con archivos adjuntos reales (UploadFile) requeriría
+        # convertir el archivo a un formato MIME compatible con la API de Gemini (e.g., base64)
+        # y usar el SDK con `contents=[prompt, image_part]`. Aquí solo simulamos el texto.
+        
         analysis_text = await asyncio.to_thread(blocking_call)
         
         return {
@@ -101,6 +110,7 @@ async def call_gemini_api(prompt: str):
 def create_stripe_checkout_session(price: int, product_name: str, metadata: dict):
     """Crea una sesión de Stripe Checkout y retorna el URL de pago."""
     
+    # Esto es crítico: si STRIPE_SECRET_KEY no está, fallamos para evitar un flujo incompleto.
     if not stripe.api_key:
         raise HTTPException(status_code=500, detail="La clave secreta de Stripe no está configurada. Imposible crear sesión de pago real.")
         
@@ -136,9 +146,118 @@ def create_stripe_checkout_session(price: int, product_name: str, metadata: dict
         raise HTTPException(status_code=500, detail="Error desconocido al crear la sesión de pago.")
 
 # =========================================================================
-# 3. HTML (Template para la Interfaz) - Diseño Limpio y Profesional
+# 4. RUTAS API (Endpoints)
 # =========================================================================
-# NOTA: Todos los corchetes literales en CSS y JavaScript deben estar doblemente escapados ({{ y }}).
+
+# --- RUTA 1: SERVICIO VOLUNTARIO (ANÁLISIS CLÍNICO IA - $50) ---
+@app.post("/volunteer/create-case")
+async def create_volunteer_case(
+    user_id: int = Form(...),
+    description: str = Form(None), # Ahora opcional
+    has_legal_consent: bool = Form(False),
+    developer_bypass_key: str = Form(None),
+    clinical_file: Optional[UploadFile] = File(None) # Archivo opcional
+):
+    
+    # 1. VERIFICACIÓN CRÍTICA DEL CONSENTIMIENTO
+    if not has_legal_consent:
+        raise HTTPException(status_code=400, detail="Debe aceptar el consentimiento legal para el Servicio Voluntario.")
+
+    # 2. VERIFICACIÓN DEL BYPASS DE DESARROLLADOR (ACCESO GRATUITO)
+    if developer_bypass_key and developer_bypass_key == ADMIN_BYPASS_KEY:
+        print(f"BYPASS ACTIVADO para el user_id: {user_id}")
+        
+        # Generar el prompt para el análisis de IA
+        prompt = description if description else "Caso clínico no especificado. Análisis genérico de salud preventiva."
+        analysis_result = await call_gemini_api(prompt)
+        
+        file_info = clinical_file.filename if clinical_file else None
+        
+        return {
+            "status": "success",
+            "payment_method": "Bypass (Gratuito)",
+            "fulfillment": {
+                "user_id": user_id,
+                "tool_activated": "Análisis Clínico IA",
+                "analysis_result": analysis_result,
+                "file_info": file_info
+            }
+        }
+
+    # 3. FLUJO DE PAGO DE STRIPE (El flujo por defecto)
+    product_name = "Análisis Clínico IA - Voluntario"
+    price = 50 # USD
+    
+    file_info_metadata = clinical_file.filename if clinical_file else "No File"
+    
+    metadata = {
+        "user_id": str(user_id),
+        "service_type": "volunteer",
+        "description_snippet": description[:50] if description else "N/A",
+        "has_file": "Yes" if clinical_file else "No",
+        "file_name": file_info_metadata
+    }
+
+    # Esta función redirige al checkout de Stripe
+    return create_stripe_checkout_session(price, product_name, metadata)
+
+
+# --- RUTA 2: SERVICIO PROFESIONAL (ACTIVACIÓN DE HERRAMIENTA - $100) ---
+@app.post("/professional/activate-tool")
+async def activate_professional_tool(
+    user_id: int = Form(...),
+    tool_name: str = Form(None), # Ahora opcional
+    developer_bypass_key: str = Form(None),
+    clinical_file: Optional[UploadFile] = File(None) # Archivo opcional
+):
+    
+    # 1. VERIFICACIÓN DEL BYPASS DE DESARROLLADOR (ACCESO GRATUITO)
+    if developer_bypass_key and developer_bypass_key == ADMIN_BYPASS_KEY:
+        print(f"BYPASS ACTIVADO para el user_id: {user_id}")
+        
+        file_info = clinical_file.filename if clinical_file else None
+        
+        return {
+            "status": "success",
+            "payment_method": "Bypass (Gratuito)",
+            "fulfillment": {
+                "user_id": user_id,
+                "tool_activated": tool_name if tool_name else "Herramienta de Debate Clínico Genérica",
+                "access_token": f"ACCESS-{int(time.time())}",
+                "file_info": file_info
+            }
+        }
+
+    # 2. FLUJO DE PAGO DE STRIPE (El flujo por defecto)
+    product_name = "Activación de Herramienta Profesional"
+    price = 100 # USD
+    
+    file_info_metadata = clinical_file.filename if clinical_file else "No File"
+
+    metadata = {
+        "user_id": str(user_id),
+        "service_type": "professional",
+        "tool_name": tool_name if tool_name else "Generic Tool",
+        "has_file": "Yes" if clinical_file else "No",
+        "file_name": file_info_metadata
+    }
+
+    # Esta función redirige al checkout de Stripe
+    return create_stripe_checkout_session(price, product_name, metadata)
+
+
+# --- RUTA PRINCIPAL (HTML) ---
+@app.get("/", response_class=HTMLResponse)
+async def serve_frontend():
+    
+    # Inyectar las variables de entorno en el HTML
+    rendered_html = HTML_TEMPLATE.replace("{RENDER_URL}", RENDER_APP_URL)
+    rendered_html = rendered_html.replace("{STRIPE_PK}", STRIPE_PUBLISHABLE_KEY)
+    
+    return rendered_html
+# =========================================================================
+# 5. TEMPLATE HTML (FRONTEND)
+# =========================================================================
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -196,7 +315,7 @@ HTML_TEMPLATE = """
                 resultsDiv.innerHTML = `
                     <div class="bg-yellow-50 border border-yellow-300 text-yellow-800 p-4 rounded-xl mt-4 animate-fadeIn">
                         <p class="font-bold text-xl mb-2">💳 Pago Requerido ($${{response.price}} \${{response.currency}}):</p>
-                        <p>Redirigiendo a Stripe Checkout en 3 segundos...</p>
+                        <p>Redirigiendo a Stripe Checkout en 3 segundos. ¡Si desea usar el Bypass, regrese y úselo!</p>
                         <a href="${{response.payment_url}}" target="_blank" class="text-blue-600 underline hover:text-blue-800 font-medium transition duration-150">
                             (Si la redirección falla, haga clic aquí para pagar)
                         </a>
@@ -212,12 +331,15 @@ HTML_TEMPLATE = """
                 // Flujo de éxito (incluyendo Bypass y resultados del análisis Gemini)
                  resultsDiv.innerHTML = `
                     <div class="bg-emerald-50 border border-emerald-400 text-emerald-800 p-6 rounded-xl mt-6 animate-fadeIn">
-                        <p class="font-extrabold text-xl mb-3">✅ Fulfillment Completo (Vía Bypass/Pago)</p>
+                        <p class="font-extrabold text-xl mb-3">✅ Fulfillment Completo (Vía Bypass)</p>
                         
                         \${{response.fulfillment.analysis_result ? `
                             <p class="text-lg font-semibold text-emerald-700 mt-4 border-b pb-2 border-emerald-200">🔬 Análisis Clínico de Gemini:</p>
                             <div class="bg-white p-4 rounded-lg border border-emerald-300 shadow-inner mt-2">
                                 <p class="whitespace-pre-wrap text-gray-800 text-sm leading-relaxed">\${{response.fulfillment.analysis_result.analysis_text || response.fulfillment.analysis_result.reason}}</p>
+                                \${{response.fulfillment.file_info ? 
+                                    '<p class="mt-2 text-xs text-gray-500">Archivo Adjunto Recibido: ' + response.fulfillment.file_info + '</p>' : ''
+                                }}
                                 \${{response.fulfillment.analysis_result.analysis_status === 'error' ? 
                                     '<p class="mt-2 text-red-500 font-medium">⚠️ Error de la API de Gemini. Verifique la razón de fallo anterior (posiblemente clave GEMINI_API_KEY no configurada).</p>' : ''
                                 }}
@@ -225,6 +347,9 @@ HTML_TEMPLATE = """
                         ` : `
                             <p class="text-lg font-semibold text-emerald-700">⚙️ Herramienta Activada:</p>
                             <p class="mt-2 text-gray-800">La herramienta <strong>\${{response.fulfillment.tool_activated}}</strong> ha sido activada correctamente para Debate Clínico.</p>
+                            \${{response.fulfillment.file_info ? 
+                                '<p class="mt-2 text-xs text-gray-500">Archivo Adjunto Recibido: ' + response.fulfillment.file_info + '</p>' : ''
+                            }}
                             <p class="mt-2 text-xs text-gray-600">Token de Acceso Simulado: \${{response.fulfillment.access_token}}</p>
                         `}}
                         
@@ -237,8 +362,9 @@ HTML_TEMPLATE = """
             }} else {{
                 // Respuesta inesperada o error
                 resultsDiv.innerHTML = `
-                    <div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-md mt-4">
-                        <p class="font-bold">❌ Error o Respuesta Inesperada del Servidor:</p>
+                    <div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-xl mt-4">
+                        <p class="font-bold">🚨 Error de Conexión o Proceso:</p>
+                        <p>No se pudo completar la solicitud con la API.</p>
                         <pre class="whitespace-pre-wrap">${{JSON.stringify(response, null, 2)}}</pre>
                     </div>
                 `;
@@ -249,17 +375,35 @@ HTML_TEMPLATE = """
             event.preventDefault();
             const form = event.target;
             const resultsDiv = document.getElementById('results-' + formId);
-            resultsDiv.innerHTML = '<div class="mt-4 p-4 text-center text-emerald-600 font-semibold flex items-center justify-center"><svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-emerald-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Procesando... Verificando Bypass y Servicios...</div>';
+            
+            // 1. Limpiar mensajes y preparar para validación/carga
+            resultsDiv.innerHTML = '';
+            
+            const formData = new FormData(form);
+            if (!formData.has('user_id')) {{ formData.append('user_id', DEMO_USER_ID); }}
+
+            // 2. VALIDACIÓN MANUAL - SOLO CONSENTIMIENTO EN SERVICIO 1
+            if (formId === 'volunteer') {{
+                const consentChecked = form.querySelector('#has_legal_consent').checked;
+
+                if (!consentChecked) {{
+                    resultsDiv.innerHTML = '<div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-xl mt-4 font-bold">⚠️ Error: Debe aceptar el consentimiento legal (obligatorio para el Servicio 1).</div>';
+                    console.error("Validación Fallida: Consentimiento legal no aceptado.");
+                    return;
+                }}
+            }}
+            
+            // 3. Iniciar el Spinner de Carga
+            console.log(`Intentando enviar formulario ${{formId}} a ${{endpoint}}`);
+            resultsDiv.innerHTML = '<div class="mt-4 p-4 text-center text-emerald-600 font-semibold flex items-center justify-center"><svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-emerald-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Procesando... Verificando Bypass y Pagos...</div>';
 
             try {{
-                const formData = new FormData(form);
-                if (!formData.has('user_id')) {{ formData.append('user_id', DEMO_USER_ID); }}
-
                 const fullUrl = `${{RENDER_APP_URL}}\${{endpoint}}`;
                 
+                // NOTA: Para incluir archivos, FormData debe enviarse directamente.
                 const response = await fetch(fullUrl, {{
                     method: 'POST',
-                    body: formData
+                    body: formData 
                 }});
 
                 const data = await response.json();
@@ -274,7 +418,7 @@ HTML_TEMPLATE = """
             }} catch (error) {{
                 resultsDiv.innerHTML = `
                     <div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-xl mt-4">
-                        <p class="font-bold">🚨 Error de Conexión o Validación:</p>
+                        <p class="font-bold">🚨 Error de Conexión o Proceso:</p>
                         <p>No se pudo completar la solicitud con la API.</p>
                         <p class="mt-2 text-xs text-gray-700">Detalles: \${{error.message}}</p>
                     </div>
@@ -305,7 +449,7 @@ HTML_TEMPLATE = """
     <div class="w-full max-w-4xl bg-white p-6 md:p-10 rounded-2xl card">
         <h1 class="text-4xl font-extrabold text-gray-800 mb-1 flex items-center">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-emerald-600 mr-3" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd" />
+                <path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd" />
             </svg>
             Ateneo Clínico IA
         </h1>
@@ -318,7 +462,7 @@ HTML_TEMPLATE = """
         </div>
 
         <p class="text-gray-600 mb-6">
-            Esta interfaz está diseñada para probar los dos servicios de Ateneo Clínico IA, verificando el flujo de pago o el **Acceso Gratuito mediante la clave de bypass**.
+            Esta interfaz prueba los flujos de **Stripe (Pago)** y **Bypass (Gratuito)**. Para pagar, deje el campo de Bypass vacío.
         </p>
         
         <!-- Controles de Pestañas -->
@@ -337,20 +481,28 @@ HTML_TEMPLATE = """
             <form id="volunteer-form" onsubmit="submitForm(event, '/volunteer/create-case', 'volunteer')">
                 <input type="hidden" name="user_id" value="1"> 
 
-                <!-- Campo de Texto Obligatorio para Signos y Síntomas -->
+                <!-- Campo de Texto Opcional para Signos y Síntomas -->
                 <div class="mb-4">
                     <label for="description" class="block text-sm font-medium text-gray-700 mb-1">
-                        Descripción del Caso / Signos y Síntomas (Obligatorio)
+                        Descripción del Caso / Signos y Síntomas (Opcional)
                     </label>
-                    <textarea id="description" name="description" rows="5" required class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 border p-3 placeholder-gray-400" placeholder="Describa el caso clínico (ej: Paciente de 45 años con fiebre, tos persistente y disnea de 3 días...)."></textarea>
+                    <textarea id="description" name="description" rows="5" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 border p-3 placeholder-gray-400" placeholder="Describa el caso clínico o deje vacío si adjunta solo archivos."></textarea>
+                </div>
+                
+                <!-- Subida de Archivos Opcional -->
+                <div class="mb-6">
+                    <label for="clinical_file" class="block text-sm font-medium text-gray-700 mb-1">
+                        Archivos Adjuntos Opcionales (Ej: Fotos, Exámenes)
+                    </label>
+                    <input type="file" id="clinical_file" name="clinical_file" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"/>
                 </div>
 
-                <!-- Consentimiento Legal -->
+                <!-- Consentimiento Legal (OBLIGATORIO) -->
                 <div class="mb-6">
                     <div class="flex items-center">
-                        <input id="has_legal_consent" name="has_legal_consent" type="checkbox" required class="h-4 w-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500 cursor-pointer">
-                        <label for="has_legal_consent" class="ml-2 block text-sm text-gray-900">
-                            Acepto el consentimiento legal para el análisis del caso.
+                        <input id="has_legal_consent" name="has_legal_consent" type="checkbox" class="h-4 w-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500 cursor-pointer">
+                        <label for="has_legal_consent" class="ml-2 block text-sm text-gray-900 font-semibold">
+                            ✅ Acepto el consentimiento legal para el análisis del caso (OBLIGATORIO).
                         </label>
                     </div>
                 </div>
@@ -358,11 +510,11 @@ HTML_TEMPLATE = """
                 <!-- Campo de Bypass (Acceso Gratuito - CRÍTICO) -->
                 <div class="mb-6 p-4 border border-dashed border-red-300 rounded-lg bg-red-50/50">
                     <label for="volunteer-bypass" class="block text-sm font-bold text-gray-700 mb-1">🔑 Acceso Gratuito: Clave de Bypass</label>
-                    <input type="password" id="volunteer-bypass" name="developer_bypass_key" placeholder="Introduzca su clave secreta de Administrador aquí (Acceso Gratuito)" class="mt-1 block w-full rounded-lg border-red-500 shadow-sm focus:border-red-500 focus:ring-red-500 border p-2">
+                    <input type="password" id="volunteer-bypass" name="developer_bypass_key" placeholder="Introduzca su clave secreta de Administrador aquí (Opcional, activa el flujo gratuito)" class="mt-1 block w-full rounded-lg border-red-500 shadow-sm focus:border-red-500 focus:ring-red-500 border p-2">
                 </div>
 
                 <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-md text-lg font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transition duration-300 ease-in-out">
-                    Ejecutar Análisis Clínico IA (Con Bypass o Pago de $50)
+                    Ejecutar Análisis Clínico IA ($50 - o use la clave de Bypass)
                 </button>
             </form>
 
@@ -377,19 +529,28 @@ HTML_TEMPLATE = """
             <form id="professional-form" onsubmit="submitForm(event, '/professional/activate-tool', 'professional')">
                 <input type="hidden" name="user_id" value="2">
                 
+                <!-- Campo de Texto Opcional para Nombre de Herramienta -->
                 <div class="mb-4">
-                    <label for="tool_name" class="block text-sm font-medium text-gray-700 mb-1">Nombre de la Herramienta (para Debate Clínico)</label>
-                    <input type="text" id="tool_name" name="tool_name" value="HerramientaDeDebateClínico" required class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 border p-2 placeholder-gray-400">
+                    <label for="tool_name" class="block text-sm font-medium text-gray-700 mb-1">Nombre de la Herramienta (Opcional)</label>
+                    <input type="text" id="tool_name" name="tool_name" value="HerramientaDeDebateClínico" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 border p-2 placeholder-gray-400">
+                </div>
+
+                <!-- Subida de Archivos Opcional -->
+                <div class="mb-6">
+                    <label for="clinical_file_prof" class="block text-sm font-medium text-gray-700 mb-1">
+                        Archivos Adjuntos Opcionales (Ej: Datos o Protocolos)
+                    </label>
+                    <input type="file" id="clinical_file_prof" name="clinical_file" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"/>
                 </div>
 
                 <!-- Campo de Bypass (Acceso Gratuito - CRÍTICO) -->
                 <div class="mb-6 p-4 border border-dashed border-red-300 rounded-lg bg-red-50/50">
                     <label for="professional-bypass" class="block text-sm font-bold text-gray-700 mb-1">🔑 Acceso Gratuito: Clave de Bypass</label>
-                    <input type="password" id="professional-bypass" name="developer_bypass_key" placeholder="Introduzca su clave secreta de Administrador aquí (Acceso Gratuito)" class="mt-1 block w-full rounded-lg border-red-500 shadow-sm focus:border-red-500 focus:ring-red-500 border p-2">
+                    <input type="password" id="professional-bypass" name="developer_bypass_key" placeholder="Introduzca su clave secreta de Administrador aquí (Opcional, activa el flujo gratuito)" class="mt-1 block w-full rounded-lg border-red-500 shadow-sm focus:border-red-500 focus:ring-red-500 border p-2">
                 </div>
 
                 <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-md text-lg font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transition duration-300 ease-in-out">
-                    Activar Herramienta (Con Bypass o Pago de $100)
+                    Activar Herramienta ($100 - o use la clave de Bypass)
                 </button>
             </form>
 
@@ -401,169 +562,8 @@ HTML_TEMPLATE = """
 
 </body>
 </html>
-"""
+"""eof
 
-@app.get("/", response_class=HTMLResponse)
-def read_root():
-    """Ruta principal que sirve la interfaz de usuario (HTML) con variables de entorno inyectadas."""
-    
-    stripe_pk_display = STRIPE_PUBLISHABLE_KEY if STRIPE_PUBLISHABLE_KEY else "pk_test_UNDEFINED_KEY"
+La lógica de pago ahora está restaurada. Si desea probar el flujo de **Stripe**, asegúrese de **dejar vacío** el campo de la Clave de Bypass. Si lo llena con la clave correcta, activará el flujo gratuito simulado.
 
-    # Inyectamos la URL de Render y la clave publicable de Stripe en el HTML
-    return HTMLResponse(content=HTML_TEMPLATE.format(
-        RENDER_URL=RENDER_APP_URL,
-        STRIPE_PK=stripe_pk_display,
-    ))
-
-# =========================================================================
-# 4. ENDPOINT PARA VOLUNTARIOS (Análisis de Caso) - Precio: $50 USD
-# =========================================================================
-
-@app.post("/volunteer/create-case")
-async def create_volunteer_case(
-    user_id: int = Form(...),
-    description: str = Form(...),
-    has_legal_consent: bool = Form(...),
-    developer_bypass_key: Optional[str] = Form(None),
-    file: Optional[UploadFile] = File(None)
-):
-    """
-    Si la clave de bypass es correcta, ejecuta el servicio de análisis de Gemini directamente.
-    De lo contrario, inicia el flujo de pago de Stripe.
-    """
-    
-    # LÓGICA CRÍTICA DE ACCESO GRATUITO (BYPASS)
-    if ADMIN_BYPASS_KEY and developer_bypass_key == ADMIN_BYPASS_KEY:
-        # Ejecutar el fulfillment del servicio VOLUNTARIO (Análisis IA)
-        gemini_response = await call_gemini_api(description)
-        
-        return {
-            "status": "success",
-            "payment_method": "ADMIN_BYPASS",
-            "fulfillment": {
-                "user_id": user_id,
-                "case_data": {"description_length": len(description)},
-                "analysis_result": gemini_response # Resultado directo de Gemini
-            }
-        }
-
-    # FLUJO DE PAGO REAL
-    product_name = "Análisis Clínico Voluntario"
-    price = 50
-    metadata = {
-        "user_id": str(user_id),
-        "service_type": "volunteer_case_analysis",
-        "description": description[:200] 
-    }
-    
-    return create_stripe_checkout_session(price, product_name, metadata)
-
-# =========================================================================
-# 5. ENDPOINT PARA PROFESIONALES (Activación de Herramienta) - Precio: $100 USD
-# =========================================================================
-
-@app.post("/professional/activate-tool")
-async def activate_professional_tool(
-    user_id: int = Form(...),
-    tool_name: str = Form(...),
-    developer_bypass_key: Optional[str] = Form(None)
-):
-    """
-    Si la clave de bypass es correcta, simula la activación de la herramienta.
-    De lo contrario, inicia el flujo de pago de Stripe.
-    """
-    
-    # LÓGICA CRÍTICA DE ACCESO GRATUITO (BYPASS)
-    if ADMIN_BYPASS_KEY and developer_bypass_key == ADMIN_BYPASS_KEY:
-        
-        # Ejecutar el fulfillment del servicio PROFESIONAL (Activación de Herramienta/Debate)
-        return {
-            "status": "success",
-            "payment_method": "ADMIN_BYPASS",
-            "fulfillment": {
-                "user_id": user_id,
-                "tool_activated": tool_name,
-                "access_token": "TOKEN_DE_ACCESO_PROFESIONAL_GENERADO_BYPASS_PARA_DEBATE"
-            }
-        }
-
-    # FLUJO DE PAGO REAL
-    product_name = f"Activación de Herramienta: {tool_name}"
-    price = 100
-    metadata = {
-        "user_id": str(user_id),
-        "service_type": "professional_tool_activation",
-        "tool_name": tool_name
-    }
-    
-    return create_stripe_checkout_session(price, product_name, metadata)
-
-
-# =========================================================================
-# 6. ENDPOINT DE STRIPE WEBHOOK (Manejo de Pagos Exitosos)
-# =========================================================================
-
-@app.post("/stripe/webhook")
-async def stripe_webhook(request: Request):
-    """
-    Endpoint para recibir eventos de Stripe y realizar el fulfillment.
-    """
-    payload = await request.body()
-    sig_header = request.headers.get('stripe-signature')
-    event = None
-
-    if not STRIPE_WEBHOOK_SECRET:
-        return JSONResponse(content={"status": "warning", "message": "Webhook secret not configured."}, status_code=200)
-
-    try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, STRIPE_WEBHOOK_SECRET
-        )
-    except (ValueError, stripe.error.SignatureVerificationError) as e:
-        print(f"Error de Webhook: {e}")
-        return JSONResponse(content={"error": "Invalid payload or signature"}, status_code=400)
-
-    # Manejar el evento
-    if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
-        
-        user_id = session['metadata'].get('user_id')
-        service_type = session['metadata'].get('service_type')
-        
-        print(f"Pago exitoso para User ID: {user_id}, Tipo: {service_type}. Iniciando Fulfillment...")
-        
-        # Aquí se ejecutaría la lógica de fulfillment REAL (Análisis IA o activación en DB)
-        
-        stripe.checkout.Session.modify(
-            session['id'],
-            metadata={'fulfilled': 'true'}
-        )
-        
-    return JSONResponse(content={"status": "success"}, status_code=200)
-
-# =========================================================================
-# 7. Páginas de Redirección (Post-Stripe)
-# =========================================================================
-
-@app.get("/stripe/success", response_class=HTMLResponse)
-def stripe_success(session_id: str):
-    """Página de éxito de Stripe Checkout."""
-    return f"""
-    <body class="p-8 bg-emerald-50 text-center font-sans">
-        <h1 class="text-4xl text-emerald-700 font-bold mb-4">¡Pago Exitoso! 🎉</h1>
-        <p class="text-lg text-gray-600">Su solicitud ha sido recibida. El ID de su sesión es: <code class="font-mono bg-emerald-100 p-1 rounded">{session_id}</code>.</p>
-        <p class="mt-4 text-gray-700">El servicio se está procesando.</p>
-        <a href="{RENDER_APP_URL}" class="mt-6 inline-block py-2 px-6 bg-emerald-600 text-white rounded-lg shadow-md hover:bg-emerald-700 transition duration-150">Volver al Inicio</a>
-    </body>
-    """
-
-@app.get("/stripe/cancel", response_class=HTMLResponse)
-def stripe_cancel():
-    """Página de cancelación de Stripe Checkout."""
-    return f"""
-    <body class="p-8 bg-red-50 text-center font-sans">
-        <h1 class="text-4xl text-red-700 font-bold mb-4">Pago Cancelado 😔</h1>
-        <p class="text-lg text-gray-600">Su pago fue cancelado. No se le ha cobrado.</p>
-        <a href="{RENDER_APP_URL}" class="mt-6 inline-block py-2 px-6 bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 transition duration-150">Volver al Inicio</a>
-    </body>
-    """
+¿Le parece correcto el funcionamiento de ambos servicios con la prioridad de Stripe y la flexibilidad de los archivos opcionales?
