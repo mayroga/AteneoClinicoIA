@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from typing import Optional, Any, Dict, List
@@ -78,16 +78,16 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
             "reason": "GEMINI_API_KEY no configurada. El servicio de análisis de IA está DESACTIVADO.",
             "prompt_used": prompt
         }
-   
-    # 1. CONSTRUCCIÓN DE LA INSTRUCCIÓN DEL SISTEMA
+    
+    # 1. CONSTRUCCIÓN DE LA INSTRUCCIÓN DEL SISTEMA (MODIFICADO PARA ANAMNESIS PROFESIONAL)
     system_instruction = (
-        f"Eres un analista clínico experto que debe actuar como un humano profesional. {token_instruction} "
-        "Analiza el caso. Detecta automáticamente el idioma de la consulta y responde íntegramente en ese mismo idioma. "
+        f"Eres un analista clínico experto. **Tu rol es realizar anamnesis completa y detallada, actuando con el más alto estándar profesional humano.** "
+        f"{token_instruction} Analiza el caso. Detecta automáticamente el idioma de la consulta y responde íntegramente en ese mismo idioma. "
     )
 
     # 2. CONSTRUCCIÓN DE LA ENTRADA MULTIMODAL (parts)
     parts = []
-   
+    
     # Agregar la imagen si existe
     if image_data:
         # Nota: La simulación de archivo aquí asume que es una imagen simple (e.g., JPEG/PNG).
@@ -98,7 +98,7 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
                 "data": image_data.decode('latin1') # Decodificación simple a base64
             }
         })
-       
+        
     # Agregar el texto del prompt
     parts.append({"text": prompt})
 
@@ -113,15 +113,15 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
             )
         )
         return response.text
-       
+        
     try:
         analysis_text = await asyncio.to_thread(blocking_call)
-       
+        
         return {
             "analysis_status": "success",
             "analysis_text": analysis_text
         }
-           
+            
     except APIError as e:
         print(f"Error de API de Gemini: {e}")
         return {
@@ -140,13 +140,13 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
 
 def create_stripe_checkout_session(total_price: int, product_name: str, metadata: dict, line_items: List[Dict]):
     """Crea una sesión de Stripe Checkout con múltiples line_items para los add-ons."""
-   
+    
     if not stripe.api_key:
         raise HTTPException(status_code=500, detail="La clave secreta de Stripe no está configurada.")
-       
+        
     success_url = f"{RENDER_APP_URL}/stripe/success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{RENDER_APP_URL}/stripe/cancel"
-   
+    
     try:
         session = stripe.checkout.Session.create(
             payment_method_types=['card'],
@@ -157,7 +157,7 @@ def create_stripe_checkout_session(total_price: int, product_name: str, metadata
             metadata=metadata,
         )
         return {"status": "payment_required", "payment_url": session.url, "price": total_price, "currency": "USD"}
-   
+    
     except stripe.error.StripeError as e:
         print(f"Error de Stripe: {e}")
         raise HTTPException(status_code=500, detail=f"Error en la API de Stripe: {e}")
@@ -173,14 +173,14 @@ async def fulfill_case(metadata: Dict[str, Any]):
     """
     user_id = metadata.get("user_id", "Unknown")
     level = int(metadata.get("service_level", 1))
-   
+    
     # 1. Recuperar info base
     tier_info = TIERS.get(level, TIERS[1])
     token_instruction = tier_info["token_instruction"]
-   
+    
     # 2. Checkear Add-ons pagados y ajustar instrucción de tokens
     include_image_analysis = metadata.get("image_analysis", "false") == "true"
-   
+    
     if include_image_analysis:
         # Aumentar la instrucción de tokens si se pagó por el add-on de imagen
         token_instruction += " " + ADDONS["image_analysis"]["instruction_boost"]
@@ -189,17 +189,17 @@ async def fulfill_case(metadata: Dict[str, Any]):
         image_data_simulated = True
     else:
         image_data_simulated = False
-       
-   
+        
+    
     description_snippet = metadata.get("description_snippet", "Caso clínico no especificado.")
     prompt = f"Analizar el siguiente caso clínico: {description_snippet}"
-   
+    
     # SIMULACIÓN DE LA LLAMADA: Asumimos que no hay datos binarios reales para la imagen en el webhook
     # Si hubiera una imagen, se enviaría el binario en 'image_data'.
     analysis_result = await call_gemini_api(prompt, token_instruction, image_data=None)
-   
+    
     print(f"🔬 Análisis de IA completado (Nivel {level}) para el usuario {user_id}. Estado: {analysis_result.get('analysis_status')}")
-   
+    
     # REGISTRO AUTOMÁTICO CRÍTICO:
     print(f"REGISTRO AUTOMÁTICO: Caso ID: XXX, Nivel: {level}, Pagó Imagen: {include_image_analysis}, Pagó Audio: {metadata.get('tts_audio')}")
 
@@ -221,24 +221,24 @@ async def create_service(
     developer_bypass_key: str = Form(None),
     clinical_file: Optional[UploadFile] = File(None)
 ):
-   
+    
     if service_level not in TIERS:
         raise HTTPException(status_code=400, detail="Nivel de servicio no válido.")
-       
+        
     tier_info = TIERS[service_level]
-   
+    
     # 1. FLUJO DE BYPASS (GRATUITO PARA DESARROLLO)
     if developer_bypass_key and developer_bypass_key == ADMIN_BYPASS_KEY:
-       
+        
         # 1.1. Construir la instrucción de tokens base
         prompt_instruction = tier_info["token_instruction"]
-       
+        
         # 1.2. Añadir boost de tokens si se incluyó el add-on de imagen
         if include_image_analysis and clinical_file:
             prompt_instruction += " " + ADDONS["image_analysis"]["instruction_boost"]
-       
+        
         prompt = description if description else "Caso clínico no especificado. Análisis genérico de salud preventiva."
-       
+        
         # Preparar la data de la imagen para la llamada multimodal
         image_data_base64 = None
         if clinical_file and clinical_file.file:
@@ -247,14 +247,14 @@ async def create_service(
             # Codificar la imagen para el envío a Gemini (simulación: base64 en latin1)
             import base64
             image_data_base64 = base64.b64encode(file_contents).decode('latin1')
-           
+            
         # Ejecutar análisis con la instrucción de tokens del nivel seleccionado
         analysis_result = await call_gemini_api(prompt, prompt_instruction, image_data=image_data_base64)
         file_info = clinical_file.filename if clinical_file else None
-       
+        
         # En el bypass, el audio se considera siempre 'incluido' si se solicitó o si el nivel lo incluye
         tts_included = include_tts_addon or service_level in ADDONS["tts_audio"]["tiers_included"]
-       
+        
         return {
             "status": "success",
             "payment_method": "Bypass (Gratuito)",
@@ -269,10 +269,10 @@ async def create_service(
         }
 
     # 2. FLUJO DE PAGO DE STRIPE
-   
+    
     total_price = tier_info["price"]
     line_items = []
-   
+    
     # 2.1. Añadir el Line Item Base (Tier)
     line_items.append({
         'price_data': {
@@ -282,7 +282,7 @@ async def create_service(
         },
         'quantity': 1,
     })
-   
+    
     # 2.2. Manejar Add-on de Análisis de Imagen
     if include_image_analysis:
         addon_info = ADDONS["image_analysis"]
@@ -310,7 +310,7 @@ async def create_service(
             'quantity': 1,
         })
     # NOTA: En un caso real, la imagen se subiría a un bucket y se guardaría la URL en metadata.
-   
+    
     metadata = {
         "user_id": str(user_id),
         "service_level": str(service_level),
@@ -332,7 +332,7 @@ async def stripe_webhook(request: Request):
     """
     if not STRIPE_WEBHOOK_SECRET:
         print("⚠️ STRIPE_WEBHOOK_SECRET no configurada. Saltando verificación de firma (RIESGO DE FRAUDE).")
-       
+        
     payload = await request.body()
     sig_header = request.headers.get('stripe-signature')
     event = None
@@ -341,26 +341,26 @@ async def stripe_webhook(request: Request):
     try:
         if STRIPE_WEBHOOK_SECRET:
              event = stripe.Webhook.construct_event(
-                payload, sig_header, STRIPE_WEBHOOK_SECRET
-            )
+                 payload, sig_header, STRIPE_WEBHOOK_SECRET
+             )
         else:
              event = json.loads(payload.decode('utf-8'))
              
     except Exception as e:
         print(f"Webhook Error: Error de verificación o carga: {e}")
         return JSONResponse({"message": "Invalid signature or payload"}, status_code=400)
-       
+        
     # 2. MANEJAR EL EVENTO PRINCIPAL
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
-       
+        
         if session.get('payment_status') == 'paid':
             print(f"🟢 Pago exitoso y verificado para Session ID: {session['id']}")
-           
+            
             # 3. Ejecutar la función de cumplimiento (ASÍNCRONA)
             # Esta función desencadena el análisis de IA real.
             asyncio.create_task(fulfill_case(session['metadata']))
-           
+            
         else:
             print(f"🟡 Sesión completada, pero no pagada para Session ID: {session['id']}")
 
@@ -395,7 +395,7 @@ async def stripe_cancel():
 # --- RUTA PRINCIPAL (HTML) ---
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-   
+    
     # Renderizar dinámicamente la tabla de precios
     tier_html = ""
     for level, data in TIERS.items():
@@ -417,20 +417,17 @@ async def serve_frontend():
                     {tasks}
                 </ul>
             </label>
-            <div class="text-xs text-center pt-2 font-medium text-emerald-500 mt-auto">
-                 Tokens controlados para este alcance.
-            </div>
         </div>
-        """
-       
+        """ # ELIMINADO: Tokens controlados para este alcance.
+        
     rendered_html = HTML_TEMPLATE.replace("{RENDER_URL}", RENDER_APP_URL)
     rendered_html = rendered_html.replace("{STRIPE_PK}", STRIPE_PUBLISHABLE_KEY)
     rendered_html = rendered_html.replace("{TIER_CARDS_HTML}", tier_html)
     rendered_html = rendered_html.replace("{TIERS_JSON}", json.dumps(TIERS))
     rendered_html = rendered_html.replace("{ADDONS_JSON}", json.dumps(ADDONS))
-   
+    
     return rendered_html
-   
+    
 # =========================================================================
 # 4. TEMPLATE HTML (FRONTEND COMPLETO CON JS Y PRECIO DINÁMICO)
 # =========================================================================
@@ -440,7 +437,7 @@ HTML_TEMPLATE = """
 <html lang="es">
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ateneo Clínico IA - Monetización Avanzada</title>
+    <title>Ateneo Clínico IA</title> <!-- Título modificado -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #e0f2f1 0%, #f7f9fb 100%); }
@@ -520,7 +517,7 @@ HTML_TEMPLATE = """
             const originalText = buttonElement.textContent;
             buttonElement.disabled = true;
             buttonElement.textContent = '🔊 Generando Audio...';
-           
+            
             const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
             const TTS_VOICE_NAME = "Kore";
 
@@ -609,7 +606,7 @@ HTML_TEMPLATE = """
                       .replace(/'/g, '&#39;')
                       .replace(/`/g, '&#96;');
         }
-       
+        
         function updatePrice() {
             const form = document.getElementById('service-form');
             const selectedLevel = parseInt(form.elements['service_level'].value);
@@ -622,7 +619,7 @@ HTML_TEMPLATE = """
             const submitButton = document.querySelector('button[type="submit"]');
 
             const isTtsIncluded = ADDONS_DATA.tts_audio.tiers_included.includes(selectedLevel);
-           
+            
             // 1. Manejar Add-on de Imagen
             if (imageCheckbox.checked) {
                 totalPrice += ADDONS_DATA.image_analysis.price;
@@ -640,10 +637,10 @@ HTML_TEMPLATE = """
                     totalPrice += ADDONS_DATA.tts_audio.price;
                 }
             }
-           
+            
             totalDisplay.textContent = `$${totalPrice}`;
             submitButton.innerHTML = `Pagar $${totalPrice} y Ejecutar Servicio Seleccionado`;
-           
+            
             // Actualizar tiempo simulado en el título
             document.getElementById('current-max-time').textContent = tierInfo.max_time_min;
         }
@@ -652,278 +649,301 @@ HTML_TEMPLATE = """
             if (countdownInterval) {
                 clearInterval(countdownInterval);
             }
-           
+            
             let secondsLeft = maxMinutes * 60;
             const timerElement = document.getElementById('timer-display');
             const messageElement = document.getElementById('timer-message');
-           
+            
             isSessionActive = true;
             document.getElementById('timer-box').classList.remove('hidden');
             timerElement.classList.remove('hidden');
             messageElement.innerHTML = '';
-           
-            function updateTimer() {
+            
+            countdownInterval = setInterval(() => {
+                secondsLeft--;
+                
                 const minutes = Math.floor(secondsLeft / 60);
                 const seconds = secondsLeft % 60;
-                const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-               
-                timerElement.textContent = `⏱ Tiempo restante: ${timeString}`;
-               
-                if (secondsLeft <= 60) {
-                    timerElement.classList.add('text-red-500');
-                    timerElement.classList.remove('text-emerald-600');
-                } else {
-                    timerElement.classList.remove('text-red-500');
-                    timerElement.classList.add('text-emerald-600');
-                }
-               
+                
+                timerElement.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                
                 if (secondsLeft <= 0) {
                     clearInterval(countdownInterval);
-                    timerElement.textContent = '⏱ Tiempo Agotado';
-                    messageElement.innerHTML = `
-                        <p class="text-sm font-bold text-red-700 mt-2">
-                            Mensaje Final Automático: Gracias por participar. Si desea abrir otro caso,
-                            puede hacerlo realizando un nuevo pago.
-                        </p>
-                    `;
+                    timerElement.classList.add('hidden');
+                    messageElement.innerHTML = '<span class="text-green-600 font-bold">✅ ¡Análisis Completado! Revise los resultados abajo.</span>';
                     isSessionActive = false;
                 }
-               
-                secondsLeft--;
-            }
-
-            updateTimer();
-            countdownInterval = setInterval(updateTimer, 1000);
+            }, 1000);
         }
-
-        function handleResponse(response) {
-            const resultsDiv = document.getElementById('results-section');
-            resultsDiv.innerHTML = '';
-           
-            if (response.payment_url) {
-                // Flujo de pago real (Stripe)
-                resultsDiv.innerHTML = `
-                    <div class="bg-yellow-50 border border-yellow-300 text-yellow-800 p-4 rounded-xl mt-4 animate-fadeIn">
-                        <p class="font-bold text-xl mb-2">💳 Pago Requerido (${document.getElementById('total-price-display').textContent}):</p>
-                        <p>Redirigiendo a Stripe Checkout. El servicio se cumplirá ÚNICAMENTE después de la confirmación del Webhook seguro.</p>
-                        <a href="${response.payment_url}" target="_blank" class="text-blue-600 underline hover:text-blue-800 font-medium transition duration-150">
-                            (Haga clic aquí si la redirección falla)
-                        </a>
-                    </div>
-                `;
-                setTimeout(() => {
-                    window.location.href = response.payment_url;
-                }, 1000);
-            } else if (response.status === "success") {
-                // Flujo de éxito (Vía Bypass)
-                const analysisText = response.fulfillment.analysis_result?.analysis_text || '';
-                const maxTime = response.fulfillment.max_time_min;
-                const ttsIncluded = response.fulfillment.tts_included;
-               
-                startCountdown(maxTime);
-               
-                resultsDiv.innerHTML = `
-                    <div class="bg-emerald-50 border border-emerald-400 text-emerald-800 p-6 rounded-xl mt-6 animate-fadeIn">
-                        <p class="font-extrabold text-xl mb-3">✅ Fulfillment Completo (Vía Bypass)</p>
-                       
-                        ${response.fulfillment.analysis_result ? `
-                            <p class="text-lg font-semibold text-emerald-700 mt-4 border-b pb-2 border-emerald-200 flex justify-between items-center">
-                                <span>🔬 Análisis Clínico de Gemini:</span>
-                                ${ttsIncluded ? `
-                                    <button id="tts-btn" onclick="generateAndPlayAudio('${escapeHtml(analysisText)}', this)"
-                                            class="bg-blue-500 hover:bg-blue-600 text-white text-sm font-bold py-1 px-3 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center">
-                                        ▶️ Reproducir Análisis
-                                    </button>
-                                ` : `
-                                    <span class="text-red-500 text-xs font-semibold">Audio no pagado/incluido.</span>
-                                `}
-                            </p>
-                            <div class="bg-white p-4 rounded-lg border border-emerald-300 shadow-inner mt-2">
-                                <p class="whitespace-pre-wrap text-gray-800 text-sm leading-relaxed">${analysisText || response.fulfillment.analysis_result.reason}</p>
-                            </div>
-                            <p class="text-xs text-gray-500 mt-2">
-                                Nota: El texto se controló estrictamente a un máximo de palabras (tokens) según el nivel de servicio.
-                            </p>
-                        ` : `
-                            <p class="text-lg font-semibold text-emerald-700">⚙️ Herramienta Activada:</p>
-                            <p class="mt-2 text-gray-800">La herramienta ha sido activada correctamente para Debate Clínico.</p>
-                        `}
-                       
-                        <p class="text-xs text-gray-500 mt-6 pt-4 border-t border-emerald-200">
-                            Método de Pago: ${response.payment_method} | User ID: ${response.fulfillment.user_id}
-                        </p>
-
-                    </div>
-                `;
+    
+        function showMessage(type, title, content) {
+            const modal = document.getElementById('message-modal');
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-content').innerHTML = content;
+            
+            const icon = document.getElementById('modal-icon');
+            icon.className = 'w-6 h-6';
+            
+            if (type === 'success') {
+                icon.classList.add('text-emerald-500');
+                icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>`;
+            } else if (type === 'error') {
+                icon.classList.add('text-red-500');
+                icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.38 3.375 2.074 3.375h14.128c1.694 0 2.938-1.875 2.074-3.376L13.19 2.405a2.25 2.25 0 0 0-3.98 0L2.697 16.126ZM12 15.75h.007V15.75H12Z" /></svg>`;
             } else {
-                resultsDiv.innerHTML = `
-                    <div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-xl mt-4">
-                        <p class="font-bold">🚨 Error de Conexión o Proceso:</p>
-                        <p>No se pudo completar la solicitud con la API.</p>
-                        <pre class="whitespace-pre-wrap text-xs">${JSON.stringify(response, null, 2)}</pre>
-                    </div>
-                `;
+                icon.classList.add('text-blue-500');
+                icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.852l.041-.02m0-6.236c0-1.077.838-1.921 1.921-1.921c1.083 0 1.92.844 1.92 1.921c0 1.076-.837 1.92-1.92 1.92c-.968 0-1.764-.707-1.897-1.614M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18Z" /></svg>`;
             }
+            
+            modal.classList.remove('hidden');
+            document.getElementById('overlay').classList.remove('hidden');
         }
 
-        async function submitForm(event) {
-            event.preventDefault();
-            const form = event.target;
-            const resultsDiv = document.getElementById('results-section');
-            resultsDiv.innerHTML = '';
-           
-            // Limpiar Timer
+        function closeModal() {
+            document.getElementById('message-modal').classList.add('hidden');
+            document.getElementById('overlay').classList.add('hidden');
+        }
+
+        function displayResult(data) {
+            const resultBox = document.getElementById('analysis-result-box');
+            const analysisText = data.fulfillment.analysis_result.analysis_text;
+            const ttsIncluded = data.fulfillment.tts_included;
+            const fileName = data.fulfillment.file_info || 'N/A';
+            
+            // Detener el temporizador simulado
             if (countdownInterval) {
                 clearInterval(countdownInterval);
-                isSessionActive = false;
-                document.getElementById('timer-box').classList.add('hidden');
             }
+            document.getElementById('timer-box').classList.add('hidden');
+            isSessionActive = false;
 
-            const formData = new FormData(form);
-            if (!formData.has('user_id')) { formData.append('user_id', DEMO_USER_ID); }
-           
-            // Validar consentimiento legal
-            const consentChecked = form.querySelector('#has_legal_consent').checked;
-            if (!consentChecked) {
-                 resultsDiv.innerHTML = '<div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-xl mt-4 font-bold">⚠️ Error: Debe aceptar el consentimiento legal (OBLIGATORIO).</div>';
-                 return;
-            }
-           
-            // Iniciar el Spinner de Carga
-            resultsDiv.innerHTML = '<div class="mt-4 p-4 text-center text-emerald-600 font-semibold flex items-center justify-center"><svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-emerald-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Procesando... Esperando Redirección de Pago/Análisis...</div>';
-
-            try {
-                const fullUrl = `${RENDER_APP_URL}/create-service`;
-               
-                const response = await fetch(fullUrl, {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-               
-                if (!response.ok) {
-                    throw new Error(data.detail ? JSON.stringify(data.detail) : `Error ${response.status}: Error de servidor.`);
-                }
-
-                handleResponse(data);
-
-            } catch (error) {
-                resultsDiv.innerHTML = `
-                    <div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-xl mt-4">
-                        <p class="font-bold">🚨 Error de Conexión o Proceso:</p>
-                        <p>No se pudo completar la solicitud con la API.</p>
-                        <p class="mt-2 text-xs text-gray-700">Detalles: ${error.message}</p>
-                    </div>
+            let ttsButtonHtml = '';
+            if (ttsIncluded && analysisText) {
+                // Sanitizar texto para la función JS, usando JSON.stringify
+                const escapedText = JSON.stringify(analysisText.replace(/"/g, ''));
+                ttsButtonHtml = `
+                    <button onclick='generateAndPlayAudio(${escapedText}, this)' class="mt-4 w-full md:w-auto px-6 py-3 bg-indigo-600 text-white font-semibold rounded-full shadow-md hover:bg-indigo-700 transition duration-150 flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5 mr-2">
+                            <path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25Zm4.28 10.28a.75.75 0 0 0 0-1.06l-3-3a.75.75 0 1 0-1.06 1.06l1.72 1.72H8.25a.75.75 0 0 0 0 1.5h5.69l-1.72 1.72a.75.75 0 1 0 1.06 1.06l3-3Z" clip-rule="evenodd" />
+                        </svg>
+                        ▶️ Reproducir Análisis
+                    </button>
                 `;
-                console.error("Error en la solicitud:", error);
             }
+            
+            resultBox.innerHTML = `
+                <div class="bg-white p-6 rounded-xl shadow-2xl animate-fadeIn">
+                    <h2 class="text-2xl font-extrabold text-emerald-700 border-b pb-3 mb-4 flex items-center">
+                        <span class="mr-2">✨</span> Resultado de Análisis Clínico
+                    </h2>
+                    
+                    <div class="mb-4 text-sm text-gray-600 space-y-1">
+                        <p><strong>Nivel de Servicio:</strong> ${TIERS_DATA[data.fulfillment.service_level].name}</p>
+                        <p><strong>Pago:</strong> ${data.payment_method}</p>
+                        <p><strong>Archivos Adjuntos:</strong> ${fileName}</p>
+                        <p><strong>Audio TTS:</strong> ${ttsIncluded ? 'Incluido' : 'No incluido'}</p>
+                    </div>
+                    
+                    ${ttsButtonHtml}
+                    
+                    <h3 class="text-lg font-bold text-gray-800 mt-6 mb-2">Análisis de la IA:</h3>
+                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 whitespace-pre-wrap text-gray-700">
+                        ${escapeHtml(analysisText || 'Error: El análisis no devolvió texto.')}
+                    </div>
+                </div>
+            `;
+            
+            resultBox.scrollIntoView({ behavior: 'smooth' });
         }
 
-        // Listener para la actualización de precios
-        window.onload = () => {
-             document.querySelectorAll('.tier-card input[name="service_level"]').forEach(radio => {
-                radio.addEventListener('change', updatePrice);
-            });
-            document.getElementById('include_image_analysis').addEventListener('change', updatePrice);
-            document.getElementById('include_tts_addon').addEventListener('change', updatePrice);
-
-            // Inicializar precio al cargar la página
+        document.addEventListener('DOMContentLoaded', () => {
+            // Inicializar UI
             updatePrice();
-        };
+            
+            // Listeners para actualizar precio
+            const form = document.getElementById('service-form');
+            form.addEventListener('change', (e) => {
+                if (e.target.name === 'service_level' || e.target.type === 'checkbox') {
+                    updatePrice();
+                }
+            });
+
+            // Listener para submit
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                if (isSessionActive) {
+                    showMessage('info', 'Sesión en Curso', 'Ya hay una solicitud de análisis activa. Por favor, espere a que termine o recargue la página.');
+                    return;
+                }
+
+                const submitButton = e.submitter;
+                const originalText = submitButton.innerHTML;
+                submitButton.disabled = true;
+                submitButton.textContent = 'Procesando Solicitud...';
+                
+                const formData = new FormData(form);
+                formData.append('user_id', DEMO_USER_ID);
+
+                try {
+                    const response = await fetch(`${RENDER_APP_URL}/create-service`, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const result = await response.json();
+
+                    if (response.ok) {
+                        if (result.status === 'payment_required') {
+                            // Redireccionar a Stripe para el pago
+                            window.location.href = result.payment_url;
+                        } else if (result.status === 'success') {
+                            // Bypass: Ejecución inmediata de la IA
+                            showMessage('success', 'Análisis Inmediato (Bypass)', 'El análisis de prueba ha sido generado por la IA.');
+                            displayResult(result);
+                        }
+                    } else {
+                        throw new Error(result.detail || 'Error desconocido en el backend.');
+                    }
+                } catch (error) {
+                    console.error("Fallo al enviar el formulario:", error);
+                    showMessage('error', 'Error de Conexión', `No se pudo procesar la solicitud: ${error.message}`);
+                } finally {
+                    // Si no es un bypass, el botón debe mantenerse en 'Procesando' hasta la redirección
+                    if (!result || result.status !== 'success') {
+                        submitButton.innerHTML = originalText;
+                        submitButton.disabled = false;
+                    }
+                }
+
+                // Si no es un bypass, iniciar el temporizador de espera asíncrona (simulado)
+                if (result && result.status === 'success') {
+                    const selectedLevel = parseInt(form.elements['service_level'].value);
+                    const maxTime = TIERS_DATA[selectedLevel].max_time_min;
+                    startCountdown(maxTime);
+                }
+            });
+        });
+
     </script>
 
-    <div class="w-full max-w-6xl bg-white p-6 md:p-10 rounded-2xl card">
-        <h1 class="text-4xl font-extrabold text-gray-800 mb-1 flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-emerald-600 mr-3" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M10 2a8 8 0 00-8 8c0 1.76.71 3.42 1.95 4.67l.14-.14C4.38 13.56 5 12.83 5 12a5 5 0 0110 0c0 .83.62 1.56 1.85 2.53l.14.14A8 8 0 0010 2zm0 14a6 6 0 110-12 6 6 0 010 12zM9 9a1 1 0 112 0v3a1 1 0 11-2 0V9z" />
-            </svg>
-            Ateneo Clínico IA: Monetización 1000%
-        </h1>
-        <p class="text-xl font-medium text-emerald-700 mb-4">Estructura por Alcance Funcional + Add-ons. Tiempo simulado por caso: <span id="current-max-time" class="font-extrabold"></span> minutos.</p>
+    <!-- ESTRUCTURA PRINCIPAL DEL FORMULARIO Y RESULTADOS -->
+    <div class="max-w-4xl w-full">
+        <header class="text-center mb-10 p-6 bg-white rounded-xl shadow-xl">
+            <h1 class="text-4xl font-extrabold text-gray-900 mb-2">Ateneo Clínico IA</h1>
+            <p class="text-lg text-emerald-600 font-medium">Análisis Clínico Asistido por Inteligencia Artificial</p>
+            <p class="mt-2 text-sm text-gray-500">Tiempo de Análisis Estimado (Simulado): <span id="current-max-time" class="font-bold">5</span> minutos.</p>
+        </header>
 
-        <!-- AVISO LEGAL OBLIGATORIO (WAIVER) -->
-        <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-lg" role="alert">
-            <p class="font-bold text-red-700">AVISO LEGAL (WAIVER OBLIGATORIO)</p>
-            <p class="text-sm text-red-600">Esta plataforma es para fines académicos/debate. **NO se procesan datos sensibles (HIPAA)**. Archivos adjuntos son para simulación.</p>
-        </div>
-
-        <!-- CONTADOR VISIBLE (TIMER) -->
-        <div id="timer-box" class="mb-6 p-3 bg-white shadow-inner rounded-xl hidden">
-            <p id="timer-display" class="text-2xl font-extrabold text-center hidden"></p>
-            <div id="timer-message" class="text-center"></div>
-        </div>
-
-        <form id="service-form" onsubmit="submitForm(event)">
-            <input type="hidden" name="user_id" value="999">
-
-            <!-- SELECCIÓN DE NIVELES -->
-            <h2 class="text-2xl font-bold text-gray-800 mb-3">1. Seleccione Nivel de Servicio Base</h2>
-            <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-                {TIER_CARDS_HTML}
-            </div>
-
-            <!-- CAMPO DE DESCRIPCIÓN Y ARCHIVO -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div>
-                    <label for="description" class="block text-sm font-medium text-gray-700 mb-1">
-                        Descripción del Caso / Signos y Síntomas
-                    </label>
-                    <textarea id="description" name="description" rows="6" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 border p-3 placeholder-gray-400" placeholder="Ejemplo: 'Paciente masculino de 45 años con dolor torácico opresivo...'"></textarea>
-                </div>
-                <div>
-                    <!-- ADD-ONS -->
-                    <h2 class="text-xl font-bold text-gray-800 mb-3">2. Add-ons (Añadir a su protocolo)</h2>
-                   
-                    <div class="mb-3 p-3 border rounded-lg bg-gray-50 flex items-center justify-between">
-                        <label for="include_image_analysis" class="flex items-center text-sm font-medium text-gray-700 cursor-pointer">
-                            <input type="checkbox" id="include_image_analysis" name="include_image_analysis" value="true" class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 mr-2">
-                            🔬 Análisis de Imagen/Laboratorio
-                        </label>
-                        <span class="text-md font-extrabold text-gray-800">$10</span>
-                    </div>
-
-                    <div class="mb-3 p-3 border rounded-lg bg-gray-50 flex items-center justify-between">
-                        <label for="include_tts_addon" class="flex items-center text-sm font-medium text-gray-700 cursor-pointer">
-                            <input type="checkbox" id="include_tts_addon" name="include_tts_addon" value="true" class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 mr-2">
-                            🎧 Audio Profesional (TTS)
-                        </label>
-                        <span id="tts-price-display" class="text-sm font-bold text-gray-600"></span>
-                    </div>
-
-                    <div class="mt-4">
-                        <label for="clinical_file" class="block text-sm font-medium text-gray-700 mb-1">
-                            Archivos Adjuntos (Para Análisis de Imagen)
-                        </label>
-                        <input type="file" id="clinical_file" name="clinical_file" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
-                    </div>
+        <form id="service-form" class="space-y-8">
+            <!-- SECCIÓN 1: SELECCIÓN DE NIVEL DE SERVICIO -->
+            <div class="card p-6 bg-white rounded-xl">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">1. Seleccione Nivel de Análisis</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                    {TIER_CARDS_HTML}
                 </div>
             </div>
 
-            <!-- TOTAL, CONSENTIMIENTO Y BYPASS -->
-            <div class="flex flex-col md:flex-row justify-between items-center bg-emerald-50 p-6 rounded-xl border border-emerald-300 mb-6">
-                <div class="flex items-center text-2xl font-bold text-gray-800">
-                    Total a Pagar: <span id="total-price-display" class="text-emerald-700 ml-2 font-extrabold"></span>
+            <!-- SECCIÓN 2: DATOS DEL CASO Y ADD-ONS -->
+            <div class="card p-6 bg-white rounded-xl">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">2. Detalle el Caso Clínico</h2>
+                
+                <div class="mb-6">
+                    <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Descripción del Caso / Anamnesis</label>
+                    <textarea id="description" name="description" rows="5" placeholder="Ingrese síntomas, historial relevante, edad, medicamentos, etc." class="w-full border-gray-300 rounded-lg shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-3"></textarea>
                 </div>
-               
-                <div class="flex flex-col items-start mt-4 md:mt-0">
-                    <div class="flex items-center mb-2">
-                        <input id="has_legal_consent" name="has_legal_consent" type="checkbox" class="h-4 w-4 text-red-600 border-gray-300 rounded focus:ring-red-500 cursor-pointer">
-                        <label for="has_legal_consent" class="ml-2 block text-sm text-gray-900 font-semibold">
-                            ✅ Acepto el consentimiento legal (OBLIGATORIO).
-                        </label>
+
+                <div class="mb-6">
+                    <!-- INPUT DE ARCHIVO (ACTUALIZADO PARA CLARIDAD) -->
+                    <label for="clinical_file" class="block text-sm font-medium text-gray-700 mb-1">Adjuntar Archivo o Imagen (Opcional)</label>
+                    <input type="file" id="clinical_file" name="clinical_file" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer" accept="image/jpeg,image/png,image/webp,.pdf,.docx,.txt">
+                    <p class="mt-1 text-xs text-gray-500">Archivos aceptados: Imágenes (JPG, PNG, WEBP), PDF, DOCX, TXT.</p>
+                </div>
+
+                <div class="border-t pt-4">
+                    <h3 class="text-lg font-bold text-gray-800 mb-3">Add-ons Opcionales</h3>
+                    <div class="space-y-3">
+                        <!-- Add-on Imagen/Laboratorio -->
+                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <label for="include_image_analysis" class="flex items-center cursor-pointer">
+                                <input type="checkbox" id="include_image_analysis" name="include_image_analysis" class="h-4 w-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500">
+                                <span class="ml-3 text-sm font-medium text-gray-700">🔬 Añadir Análisis de Imagen/Laboratorio ($${ADDONS_DATA.image_analysis.price})</span>
+                            </label>
+                        </div>
+
+                        <!-- Add-on Audio -->
+                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <label for="include_tts_addon" class="flex items-center cursor-pointer">
+                                <input type="checkbox" id="include_tts_addon" name="include_tts_addon" class="h-4 w-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500">
+                                <span class="ml-3 text-sm font-medium text-gray-700">🎧 Generar Audio Profesional del Análisis (TTS)</span>
+                            </label>
+                            <span id="tts-price-display" class="text-xs font-semibold text-emerald-600">($${ADDONS_DATA.tts_audio.price} Add-on)</span>
+                        </div>
                     </div>
-                    <input type="password" id="developer-bypass" name="developer_bypass_key" placeholder="🔑 Clave de Bypass (Flujo Gratuito)" class="mt-1 block w-full rounded-lg border-red-500 shadow-sm focus:border-red-500 focus:ring-red-500 border p-2 text-sm">
                 </div>
             </div>
-
-            <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-xl text-lg font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-4 focus:ring-offset-2 focus:ring-emerald-500 transition duration-300 ease-in-out">
-                Pagar y Ejecutar Servicio Seleccionado
-            </button>
+            
+            <!-- SECCIÓN 3: PAGO Y BYPASS (DEMO) -->
+            <div class="card p-6 bg-emerald-50 rounded-xl flex flex-col items-center">
+                <h2 class="text-3xl font-extrabold text-emerald-700 mb-4">Total: <span id="total-price-display">$10</span> USD</h2>
+                
+                <button type="submit" class="w-full md:w-auto px-10 py-4 bg-emerald-600 text-white font-bold rounded-xl text-lg hover:bg-emerald-700 transition duration-300 shadow-lg" id="submit-button">
+                    Pagar $10 y Ejecutar Servicio Seleccionado
+                </button>
+                
+                <div class="mt-6 text-center text-sm text-gray-600">
+                    <p class="font-bold mb-2">MODO DE DESARROLLO (Bypass Gratuito)</p>
+                    <input type="text" name="developer_bypass_key" placeholder="Clave de Bypass" class="text-center w-48 border-gray-300 rounded-lg shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-2 text-sm">
+                </div>
+            </div>
         </form>
+        
+        <!-- VISOR DE ESTADO DE PROCESAMIENTO (TIMER SIMULADO) -->
+        <div id="timer-box" class="card p-4 mt-8 bg-blue-100 border-blue-300 text-blue-800 rounded-xl shadow-lg hidden">
+            <div class="flex items-center justify-between">
+                <div class="font-bold flex items-center">
+                    <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Procesando Análisis...
+                </div>
+                <div id="timer-display" class="font-extrabold text-lg">00:00</div>
+            </div>
+            <div id="timer-message" class="mt-2 text-sm font-medium">Esperando respuesta asíncrona del backend.</div>
+        </div>
 
-        <div id="results-section">
-            <!-- Los resultados de la API aparecerán aquí -->
+        <!-- VISOR DE RESULTADOS DE LA IA -->
+        <div id="analysis-result-box" class="mt-10">
+            <!-- Los resultados se inyectarán aquí después del bypass o la confirmación de pago. -->
+        </div>
+        
+        <!-- AVISO LEGAL (WAIVER) - TEXTO ACTUALIZADO -->
+        <div class="mt-10 p-6 bg-red-50 border border-red-300 rounded-xl shadow-md">
+            <h3 class="text-xl font-bold text-red-700 mb-3">⚖️ AVISO LEGAL (WAIVER OBLIGATORIO)</h3>
+            <div class="text-sm text-red-600 space-y-2">
+                <p>Esta plataforma es solo para fines académicos, educativos y de debate clínico.</p>
+                <p>Los datos o archivos enviados son simulaciones, no constituyen diagnóstico ni historia clínica real (no cubre HIPAA).</p>
+                <p>Las respuestas de IA o profesionales no reemplazan atención médica, y usted renuncia a cualquier reclamo legal contra administradores o participantes.</p>
+                <p>Al usar la plataforma, autoriza el uso académico o investigativo del material compartido y acepta que cualquier decisión de salud debe consultarse con un médico licenciado.</p>
+            </div>
+        </div>
+
+    </div>
+    
+    <!-- MODAL DE MENSAJES -->
+    <div id="overlay" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden transition-opacity z-40" onclick="closeModal()"></div>
+    <div id="message-modal" class="fixed inset-0 z-50 overflow-y-auto hidden">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 relative">
+                <button class="absolute top-3 right-3 text-gray-400 hover:text-gray-600" onclick="closeModal()">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+                <div class="flex items-center mb-4">
+                    <span id="modal-icon" class="mr-3"></span>
+                    <h3 id="modal-title" class="text-lg font-bold text-gray-900"></h3>
+                </div>
+                <div id="modal-content" class="text-sm text-gray-700"></div>
+            </div>
         </div>
     </div>
 
