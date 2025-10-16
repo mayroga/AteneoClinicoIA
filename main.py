@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request 
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from typing import Optional, Any, Dict, List
@@ -20,17 +20,16 @@ ADMIN_BYPASS_KEY = os.getenv("ADMIN_BYPASS_KEY", "CLAVE_SECRETA_ADMIN")
 STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "pk_test_...")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") # Necesario para la IA multimodal (backend)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 RENDER_APP_URL = os.getenv("RENDER_APP_URL", "https://ateneoclinicoia.onrender.com")
 
 # ESTRUCTURA MEJORADA: VALOR POR ALCANCE FUNCIONAL
-# Incluye base_tasks y max_time_min SIMULADO para el timer
 TIERS = {
-    1: {"name": "🩺 Nivel 1 – Diagnóstico Rápido", "price": 10, "value_focus": "Respuesta Directa. (1 Tarea IA)", "max_time_min": 5, "token_instruction": "Proporciona una respuesta extremadamente concisa y directa (Diagnóstico, Hipótesis y Sugerencia de Tratamiento Medicamentoso SIMULADO). Máximo 150 palabras.", "base_tasks": ["Diagnóstico/Hipótesis", "Tratamiento Medicamentoso (Simulado)"]},
-    2: {"name": "⚡ Nivel 2 – Evaluación Estándar", "price": 50, "value_focus": "Análisis Básico Completo. (2 Tareas IA)", "max_time_min": 10, "token_instruction": "Proporciona un Diagnóstico Definitivo y una Sugerencia Terapéutica General que incluye Tratamiento Medicamentoso SIMULADO y conciso. Máximo 600 palabras.", "base_tasks": ["Diagnóstico Definitivo", "Tratamiento Medicamentoso (Simulado)", "Sugerencia Terapéutica General"]},
-    3: {"name": "🧠 Nivel 3 – Planificación y Protocolo", "price": 100, "value_focus": "Protocolo Clínico Detallado. (3 Tareas IA)", "max_time_min": 25, "token_instruction": "Genera un Protocolo Clínico Detallado: Diagnóstico, Tratamiento Medicamentoso ESPECÍFICO SIMULADO y Plan de Pruebas Adicionales. Máximo 1000 palabras.", "base_tasks": ["Diagnóstico Definitivo", "Tratamiento Medicamentoso Específico (Simulado)", "Plan de Pruebas Adicionales"]},
-    4: {"name": "🧬 Nivel 4 – Debate y Evidencia", "price": 200, "value_focus": "Análisis Crítico y Controvertido. (4 Tareas IA)", "max_time_min": 45, "token_instruction": "Genera un Debate Clínico que incluye Diagnóstico, un Plan de Tratamiento Medicamentoso SIMULADO y Detallado, Pruebas y una Sección 'Debate y Alternativas', analizando controversias y evidencia. Máximo 1800 palabras.", "base_tasks": ["Diagnóstico", "Tratamiento Medicamentoso Detallado (Simulado)", "Pruebas Adicionales", "Debate y Alternativas"]},
-    5: {"name": "🧾 Nivel 5 – Mesa Clínica Premium", "price": 500, "value_focus": "Multi-Caso y Documentación Formal. (3 Casos x 5 Tareas)", "max_time_min": 70, "token_instruction": "Analiza tres casos clínicos proporcionados de forma secuencial. Al final proporciona un Resumen Comparativo, Insights y un borrador de Documentación Formal que incluye un Plan de Tratamiento Medicamentoso SIMULADO para cada caso. Máximo 3500 palabras.", "base_tasks": ["Diagnóstico Completo", "Tratamiento Medicamentoso (Simulado) por Caso", "Debate Crítico", "Análisis Comparativo (Multi-Caso)", "Borrador de Informe Documental"]},
+    1: {"name": " Nivel 1 – Diagnóstico Rápido", "price": 10, "value_focus": "Diagnóstico Hipotético y Tratamiento Mínimo. (1 Tarea IA)", "max_time_min": 5, "token_instruction": "Proporciona un Diagnóstico Hipotético y una sugerencia de Tratamiento Medicamentoso Hipotético. La respuesta debe ser concisa. Máximo 150 palabras.", "base_tasks": ["Diagnóstico Hipotético", "Tratamiento Medicamentoso Hipotético"]},
+    2: {"name": " Nivel 2 – Evaluación Estándar", "price": 50, "value_focus": "Análisis Básico, Diagnóstico y Tratamiento Detallado. (2 Tareas IA)", "max_time_min": 10, "token_instruction": "Proporciona un Diagnóstico Hipotético y un Tratamiento Medicamentoso Hipotético Detallado con indicaciones. Máximo 600 palabras.", "base_tasks": ["Diagnóstico Hipotético Definitivo", "Tratamiento Medicamentoso Hipotético Detallado"]},
+    3: {"name": " Nivel 3 – Planificación y Protocolo", "price": 100, "value_focus": "Protocolo Clínico Detallado. (3 Tareas IA)", "max_time_min": 25, "token_instruction": "Genera un Protocolo Clínico Detallado: Diagnóstico Hipotético, Terapia Específica Hipotética y Plan de Pruebas Adicionales. Máximo 900 palabras.", "base_tasks": ["Diagnóstico Hipotético Definitivo", "Terapia Específica Hipotética", "Plan de Pruebas Adicionales"]},
+    4: {"name": " Nivel 4 – Debate y Evidencia", "price": 200, "value_focus": "Análisis Crítico, Diagnóstico y Controvertido. (4 Tareas IA)", "max_time_min": 45, "token_instruction": "Genera un Debate Clínico que incluye Diagnóstico Hipotético, Tratamiento Hipotético, Pruebas y una Sección 'Debate y Alternativas'. Máximo 1600 palabras.", "base_tasks": ["Diagnóstico Hipotético", "Tratamiento Hipotético", "Pruebas Adicionales", "Debate y Alternativas"]},
+    5: {"name": " Nivel 5 – Mesa Clínica Premium", "price": 500, "value_focus": "Multi-Caso y Documentación Formal. (3 Casos x 5 Tareas)", "max_time_min": 70, "token_instruction": "Analiza tres casos clínicos proporcionados. Proporciona un Resumen Comparativo, Insights y un borrador de Documentación Formal, incluyendo Diagnóstico y Tratamiento Hipotético para cada caso. Máximo 3000 palabras.", "base_tasks": ["Diagnóstico Completo Hipotético", "Tratamiento y Protocolo Hipotético", "Debate Crítico", "Análisis Comparativo (Multi-Caso)", "Borrador de Informe Documental"]},
 }
 
 # ADD-ONS DEFINITION (Precios fijos)
@@ -47,7 +46,6 @@ if STRIPE_SECRET_KEY:
 gemini_client = None
 if GEMINI_API_KEY:
     try:
-        # Nota: La clave API de Gemini NO debe ser expuesta en el frontend.
         gemini_client = genai.Client(api_key=GEMINI_API_KEY)
     except Exception as e:
         print(f"Error inicializando el cliente de Gemini: {e}")
@@ -81,10 +79,11 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
             "prompt_used": prompt
         }
     
-    # 1. CONSTRUCCIÓN DE LA INSTRUCCIÓN DEL SISTEMA (ACTUALIZADA PARA INCLUIR TRATAMIENTO SIMULADO)
+    # 1. CONSTRUCCIÓN DE LA INSTRUCCIÓN DEL SISTEMA (MODIFICADO PARA EXPERIMENTO)
+    # CRÍTICO: Debe sonar como un médico real, pero advertir que es HIPOTÉTICO.
     system_instruction = (
-        f"Eres un analista clínico experto. **Tu rol es realizar anamnesis completa y detallada, actuando con el más alto estándar profesional humano.** "
-        f"Tu respuesta DEBE incluir un segmento de 'Tratamiento Medicamentoso' y/o 'Protocolo de Manejo'. **ADVIERTE CLARAMENTE que esta sección es puramente SIMULADA, EXPERIMENTAL y NO DEBE SER UTILIZADA EN UN CONTEXTO CLÍNICO REAL.** "
+        f"Eres un analista clínico experto y profesional. Tu rol es realizar una anamnesis completa y detallada. "
+        f"Debes sonar como un médico real y experto. Proporciona un **Diagnóstico Hipotético** y un **Tratamiento Medicamentoso Hipotético** como parte de tu respuesta. "
         f"{token_instruction} Analiza el caso. Detecta automáticamente el idioma de la consulta y responde íntegramente en ese mismo idioma. "
     )
 
@@ -93,10 +92,11 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
     
     # Agregar la imagen si existe
     if image_data:
+        # Nota: La simulación de archivo aquí asume que es una imagen simple (e.g., JPEG/PNG).
         parts.append({
             "inlineData": {
                 "mimeType": "image/jpeg",
-                "data": image_data.decode('latin1')
+                "data": image_data.decode('latin1') # Decodificación simple a base64
             }
         })
         
@@ -182,19 +182,25 @@ async def fulfill_case(metadata: Dict[str, Any]):
     # 2. Checkear Add-ons pagados y ajustar instrucción de tokens
     include_image_analysis = metadata.get("image_analysis", "false") == "true"
     
-    image_data_binary = None 
     if include_image_analysis:
+        # Aumentar la instrucción de tokens si se pagó por el add-on de imagen
         token_instruction += " " + ADDONS["image_analysis"]["instruction_boost"]
+        # Aquí se debería recuperar el archivo adjunto (que fue temporalmente almacenado)
+        image_data_simulated = True
+    else:
+        image_data_simulated = False
+        
     
     description_snippet = metadata.get("description_snippet", "Caso clínico no especificado.")
     prompt = f"Analizar el siguiente caso clínico: {description_snippet}"
     
-    analysis_result = await call_gemini_api(prompt, token_instruction, image_data=image_data_binary)
+    # CRÍTICO: LLAMADA A LA IA para activar el servicio completo
+    # Si hubiera una imagen, se enviaría el binario en 'image_data'.
+    analysis_result = await call_gemini_api(prompt, token_instruction, image_data=None)
     
-    print(f"🔬 Análisis de IA completado (Nivel {level}) para el usuario {user_id}. Estado: {analysis_result.get('analysis_status')}")
+    print(f" Análisis de IA completado (Nivel {level}) para el usuario {user_id}. Estado: {analysis_result.get('analysis_status')}")
     
     # REGISTRO AUTOMÁTICO CRÍTICO:
-    # **Aquí se debe almacenar analysis_result en la base de datos**
     print(f"REGISTRO AUTOMÁTICO: Caso ID: XXX, Nivel: {level}, Pagó Imagen: {include_image_analysis}, Pagó Audio: {metadata.get('tts_audio')}")
 
     return analysis_result
@@ -228,24 +234,22 @@ async def create_service(
         prompt_instruction = tier_info["token_instruction"]
         
         # 1.2. Añadir boost de tokens si se incluyó el add-on de imagen
-        image_data_base64 = None
-        file_info = None
-        
         if include_image_analysis and clinical_file:
             prompt_instruction += " " + ADDONS["image_analysis"]["instruction_boost"]
-            
-            # Leer el contenido del archivo para el bypass multimodal
-            file_contents = await clinical_file.read()
-            # Codificar la imagen para el envío a Gemini (Base64)
-            image_data_base64 = base64.b64encode(file_contents)
-            file_info = clinical_file.filename
-            
+        
         prompt = description if description else "Caso clínico no especificado. Análisis genérico de salud preventiva."
         
+        # Preparar la data de la imagen para la llamada multimodal
+        image_data_base64 = None
+        if clinical_file and clinical_file.file:
+            file_contents = await clinical_file.read()
+            # CRÍTICO: Usar base64 para el bypass que ejecuta la IA inmediatamente
+            image_data_base64 = base64.b64encode(file_contents).decode('latin1')
+            
         # Ejecutar análisis con la instrucción de tokens del nivel seleccionado
         analysis_result = await call_gemini_api(prompt, prompt_instruction, image_data=image_data_base64)
+        file_info = clinical_file.filename if clinical_file else None
         
-        # En el bypass, el audio se considera 'incluido' si se solicitó o si el nivel lo incluye
         tts_included = include_tts_addon or service_level in ADDONS["tts_audio"]["tiers_included"]
         
         return {
@@ -262,7 +266,8 @@ async def create_service(
         }
 
     # 2. FLUJO DE PAGO DE STRIPE
-    
+    # ... (Resto del código de Stripe Checkout que no requiere cambios)
+
     total_price = tier_info["price"]
     line_items = []
     
@@ -303,6 +308,7 @@ async def create_service(
             'quantity': 1,
         })
     
+    # La información esencial se pasa al Webhook a través de Metadata
     metadata = {
         "user_id": str(user_id),
         "service_level": str(service_level),
@@ -318,12 +324,9 @@ async def create_service(
 # --- RUTA WEBHOOK DE STRIPE (Fulfillment Seguro y CRÍTICO) ---
 @app.post("/stripe/webhook")
 async def stripe_webhook(request: Request):
-    """
-    Ruta para manejar eventos POST de Stripe (Webhooks).
-    CRÍTICO: Verifica la firma y solo cumple el servicio con pago confirmado.
-    """
+# ... (Código del webhook sin cambios, mantiene la llamada a fulfill_case)
     if not STRIPE_WEBHOOK_SECRET:
-        print("⚠️ STRIPE_WEBHOOK_SECRET no configurada. Saltando verificación de firma (RIESGO DE FRAUDE).")
+        print(" STRIPE_WEBHOOK_SECRET no configurada. Saltando verificación de firma (RIESGO DE FRAUDE).")
         
     payload = await request.body()
     sig_header = request.headers.get('stripe-signature')
@@ -332,12 +335,12 @@ async def stripe_webhook(request: Request):
     # 1. VERIFICAR LA FIRMA DEL WEBHOOK
     try:
         if STRIPE_WEBHOOK_SECRET:
-             event = stripe.Webhook.construct_event(
-                 payload, sig_header, STRIPE_WEBHOOK_SECRET
-             )
+              event = stripe.Webhook.construct_event(
+                  payload, sig_header, STRIPE_WEBHOOK_SECRET
+              )
         else:
-             event = json.loads(payload.decode('utf-8'))
-             
+              event = json.loads(payload.decode('utf-8'))
+              
     except Exception as e:
         print(f"Webhook Error: Error de verificación o carga: {e}")
         return JSONResponse({"message": "Invalid signature or payload"}, status_code=400)
@@ -347,13 +350,13 @@ async def stripe_webhook(request: Request):
         session = event['data']['object']
         
         if session.get('payment_status') == 'paid':
-            print(f"🟢 Pago exitoso y verificado para Session ID: {session['id']}")
+            print(f" Pago exitoso y verificado para Session ID: {session['id']}")
             
             # 3. Ejecutar la función de cumplimiento (ASÍNCRONA)
             asyncio.create_task(fulfill_case(session['metadata']))
             
         else:
-            print(f"🟡 Sesión completada, pero no pagada para Session ID: {session['id']}")
+            print(f" Sesión completada, pero no pagada para Session ID: {session['id']}")
 
     return JSONResponse({"message": "Success"}, status_code=200)
 
@@ -390,15 +393,15 @@ async def serve_frontend():
     # Renderizar dinámicamente la tabla de precios
     tier_html = ""
     for level, data in TIERS.items():
-        tasks = "".join([f'<li class="text-sm text-gray-600 ml-4">✅ {t}</li>' for t in data['base_tasks']])
+        tasks = "".join([f'<li class="text-sm text-gray-600 ml-4"> {t}</li>' for t in data['base_tasks']])
         tier_html += f"""
         <div class="tier-card p-6 bg-white border rounded-xl shadow-lg transition duration-300 hover:shadow-xl cursor-pointer flex flex-col" data-level="{level}" data-price="{data['price']}" data-time="{data['max_time_min']}">
             <input type="radio" id="level_{level}" name="service_level" value="{level}" class="hidden" {"checked" if level == 1 else ""}>
             <label for="level_{level}" class="block cursor-pointer flex-grow">
                 <div class="flex justify-between items-start mb-3 border-b-2 pb-2">
                     <h3 class="text-xl font-bold text-gray-800 flex items-center">
-                        <span class="mr-2 text-emerald-600">{'🩺' if level == 1 else '⚡' if level == 2 else '🧠' if level == 3 else '🧬' if level == 4 else '🧾'}</span>
-                        {data['name']}
+                        <span class="mr-2 text-emerald-600"></span>
+                         {data['name']}
                     </h3>
                     <div class="text-3xl font-extrabold text-emerald-600">${data['price']}</div>
                 </div>
@@ -409,7 +412,7 @@ async def serve_frontend():
                 </ul>
             </label>
         </div>
-        """ 
+        """
         
     rendered_html = HTML_TEMPLATE.replace("{RENDER_URL}", RENDER_APP_URL)
     rendered_html = rendered_html.replace("{STRIPE_PK}", STRIPE_PUBLISHABLE_KEY)
@@ -428,8 +431,7 @@ HTML_TEMPLATE = """
 <html lang="es">
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ateneo Clínico IA</title> 
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Ateneo Clínico IA</title> <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #e0f2f1 0%, #f7f9fb 100%); }
         .card { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.05); border: 1px solid #e2e8f0; }
@@ -442,9 +444,131 @@ HTML_TEMPLATE = """
 </head>
 <body class="p-4 md:p-8 min-h-screen flex items-start justify-center">
 
+    <div class="max-w-4xl w-full">
+        <header class="text-center mb-6 p-6 bg-white rounded-xl shadow-xl">
+            <h1 class="text-4xl font-extrabold text-gray-900 mb-2">Ateneo Clínico IA</h1>
+            <p class="text-lg text-emerald-600 font-medium">Análisis Clínico Asistido por Inteligencia Artificial</p>
+            <p class="mt-2 text-sm text-gray-500">Tiempo de Análisis Estimado (Simulado): <span id="current-max-time" class="font-bold">5</span> minutos.</p>
+        </header>
+
+        <div class="mb-8 p-6 bg-yellow-50 border border-yellow-300 rounded-xl shadow-md">
+            <h3 class="text-xl font-bold text-yellow-700 mb-3">⚠️ ADVERTENCIA CRÍTICA: Experimento Clínico Simulado ⚠️</h3>
+            <div class="text-sm text-yellow-600 space-y-2">
+                <p>Estimado Voluntario, este servicio simula un **Debate Clínico Profesional** para fines de **investigación y desarrollo de IA**.</p>
+                <p class="font-bold">El **Diagnóstico Hipotético** y el **Tratamiento Medicamentoso Hipotético** proporcionados son exclusivamente para experimentar la interacción con el modelo de IA.</p>
+                <p>
+                    <span class="font-extrabold underline">NO SON REALES.</span>
+                    Usted debe ser examinado por un **Médico Licenciado** para cualquier decisión de salud. Al usar el servicio, usted entiende y acepta esta condición crucial.
+                </p>
+            </div>
+        </div>
+        
+        <form id="service-form" class="space-y-8">
+            <div class="card p-6 bg-white rounded-xl">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">1. Seleccione Nivel de Análisis</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                    {TIER_CARDS_HTML}
+                </div>
+            </div>
+
+            <div class="card p-6 bg-white rounded-xl">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">2. Detalle el Caso Clínico</h2>
+                
+                <div class="mb-6">
+                    <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Descripción del Caso / Anamnesis</label>
+                    <textarea id="description" name="description" rows="5" placeholder="Ingrese síntomas, historial relevante, edad, medicamentos, etc." class="w-full border-gray-300 rounded-lg shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-3"></textarea>
+                </div>
+
+                <div class="mb-6">
+                    <label for="clinical_file" class="block text-sm font-medium text-gray-700 mb-1">Adjuntar Archivo o Imagen (Opcional)</label>
+                    <input type="file" id="clinical_file" name="clinical_file" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer" accept="image/jpeg,image/png,image/webp,.pdf,.docx,.txt">
+                    <p class="mt-1 text-xs text-gray-500">Archivos aceptados: Imágenes (JPG, PNG, WEBP), PDF, DOCX, TXT.</p>
+                </div>
+
+                <div class="border-t pt-4">
+                    <h3 class="text-lg font-bold text-gray-800 mb-3">Add-ons Opcionales</h3>
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <label for="include_image_analysis" class="flex items-center cursor-pointer">
+                                <input type="checkbox" id="include_image_analysis" name="include_image_analysis" class="h-4 w-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500">
+                                <span class="ml-3 text-sm font-medium text-gray-700"> Añadir Análisis de Imagen/Laboratorio ($10)</span>
+                            </label>
+                        </div>
+
+                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <label for="include_tts_addon" class="flex items-center cursor-pointer">
+                                <input type="checkbox" id="include_tts_addon" name="include_tts_addon" class="h-4 w-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500">
+                                <span class="ml-3 text-sm font-medium text-gray-700"> Generar Audio Profesional del Análisis (TTS)</span>
+                            </label>
+                            <span id="tts-price-display" class="text-xs font-semibold text-emerald-600">($3 Add-on)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card p-6 bg-emerald-50 rounded-xl flex flex-col items-center">
+                <h2 class="text-3xl font-extrabold text-emerald-700 mb-4">Total: <span id="total-price-display">$10</span> USD</h2>
+                
+                <button type="submit" class="w-full md:w-auto px-10 py-4 bg-emerald-600 text-white font-bold rounded-xl text-lg hover:bg-emerald-700 transition duration-300 shadow-lg" id="submit-button">
+                    Pagar $10 y Ejecutar Servicio Seleccionado
+                </button>
+                
+                <div class="mt-6 text-center text-sm text-gray-600">
+                    <p class="font-bold mb-2">MODO DE DESARROLLO (Bypass Gratuito)</p>
+                    <input type="text" name="developer_bypass_key" placeholder="Clave de Bypass" class="text-center w-48 border-gray-300 rounded-lg shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-2 text-sm">
+                </div>
+            </div>
+        </form>
+        
+        <div id="timer-box" class="card p-4 mt-8 bg-blue-100 border-blue-300 text-blue-800 rounded-xl shadow-lg hidden">
+            <div class="flex items-center justify-between">
+                <div class="font-bold flex items-center">
+                    <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Procesando Análisis...
+                </div>
+                <div id="timer-display" class="font-extrabold text-lg">00:00</div>
+            </div>
+            <div id="timer-message" class="mt-2 text-sm font-medium">Esperando respuesta asíncrona del backend.</div>
+        </div>
+
+        <div id="analysis-result-box" class="mt-10">
+            </div>
+        
+        <div class="mt-10 p-6 bg-red-50 border border-red-300 rounded-xl shadow-md">
+            <h3 class="text-xl font-bold text-red-700 mb-3"> AVISO LEGAL (WAIVER OBLIGATORIO)</h3>
+            <div class="text-sm text-red-600 space-y-2">
+                <p>Esta plataforma es solo para fines académicos, educativos y de debate clínico. **Los niveles 1 y 2 están enfocados en la experimentación voluntaria.**</p>
+                <p>Los datos o archivos enviados son simulaciones, no constituyen diagnóstico ni historia clínica real (no cubre HIPAA).</p>
+                <p>Las respuestas de IA o profesionales no reemplazan atención médica, y usted renuncia a cualquier reclamo legal contra administradores o participantes.</p>
+                <p>Al usar la plataforma, autoriza el uso académico o investigativo del material compartido y acepta que cualquier decisión de salud debe consultarse con un médico licenciado.</p>
+            </div>
+        </div>
+
+    </div>
+    
+    <div id="overlay" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden transition-opacity z-40" onclick="closeModal()"></div>
+    <div id="message-modal" class="fixed inset-0 z-50 overflow-y-auto hidden">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 relative">
+                <button class="absolute top-3 right-3 text-gray-400 hover:text-gray-600" onclick="closeModal()">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+                <div class="flex items-center mb-4">
+                    <span id="modal-icon" class="mr-3"></span>
+                    <h3 id="modal-title" class="text-lg font-bold text-gray-900"></h3>
+                </div>
+                <div id="modal-content" class="text-sm text-gray-700"></div>
+            </div>
+        </div>
+    </div>
+
     <script>
-        // [ ... LÓGICA JAVASCRIPT OMITIDA POR BREVEDAD, SE MANTIENE LA DEL FRAGMENTO ANTERIOR ... ]
-        // (Nota: El JS completo es el de la respuesta anterior)
+        // =========================================================================
+        // CONSTANTES Y CONFIGURACIÓN
+        // =========================================================================
         const RENDER_APP_URL = "{RENDER_URL}";
         const DEMO_USER_ID = 999;
         const TIERS_DATA = {TIERS_JSON};
@@ -452,6 +576,10 @@ HTML_TEMPLATE = """
 
         let countdownInterval = null;
         let isSessionActive = false;
+
+        // =========================================================================
+        // UTILITIES DE AUDIO (Conversión PCM a WAV - MANTENIDO)
+        // =========================================================================
 
         function base64ToArrayBuffer(base64) {
             const binaryString = atob(base64);
@@ -497,16 +625,18 @@ HTML_TEMPLATE = """
 
             return new Blob([view], { type: 'audio/wav' });
         }
-        
+
+
         async function generateAndPlayAudio(text, buttonElement) {
             const originalText = buttonElement.textContent;
             buttonElement.disabled = true;
-            buttonElement.textContent = '🔊 Generando Audio...';
+            buttonElement.textContent = ' Generando Audio...';
             
             const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
             const TTS_VOICE_NAME = "Kore";
 
-            const apiKey = ""; 
+            // 1. LLAMADA A LA API DE GEMINI TTS
+            const apiKey = "";
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`;
 
             const natural_speech_prompt = `Di de forma natural y profesional, omitiendo cualquier mención a la puntuación o símbolos, solo el texto principal: ${text}`;
@@ -546,26 +676,28 @@ HTML_TEMPLATE = """
                 const rateMatch = mimeType.match(/rate=(\d+)/);
                 const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000;
 
+                // 2. CONVERSIÓN DE PCM A WAV
                 const pcmData = base64ToArrayBuffer(audioData);
                 const pcm16 = new Int16Array(pcmData);
                 const wavBlob = pcmToWav(pcm16, sampleRate);
                 const audioUrl = URL.createObjectURL(wavBlob);
 
+                // 3. REPRODUCCIÓN
                 const audio = new Audio(audioUrl);
                 audio.play();
 
-                buttonElement.textContent = '▶️ Escuchando...';
+                buttonElement.textContent = ' Escuchando...';
                 audio.onended = () => {
-                    buttonElement.textContent = '▶️ Reproducir Análisis';
+                    buttonElement.textContent = ' Reproducir Análisis';
                     buttonElement.disabled = false;
                     URL.revokeObjectURL(audioUrl);
                 };
 
             } catch (error) {
                 console.error("Error al generar o reproducir el audio TTS:", error);
-                buttonElement.textContent = '❌ Error de Audio';
+                buttonElement.textContent = ' Error de Audio';
             } finally {
-                if (buttonElement.textContent !== '▶️ Escuchando...') {
+                if (buttonElement.textContent !== ' Escuchando...') {
                     setTimeout(() => {
                         buttonElement.textContent = originalText;
                         buttonElement.disabled = false;
@@ -575,14 +707,18 @@ HTML_TEMPLATE = """
         }
 
 
+        // =========================================================================
+        // LÓGICA DE FORMULARIO, PRECIOS Y TIEMPO (TIMER)
+        // =========================================================================
+
         function escapeHtml(str) {
             if (!str) return '';
             return str.replace(/&/g, '&amp;')
-                      .replace(/</g, '&lt;')
-                      .replace(/>/g, '&gt;')
-                      .replace(/"/g, '&quot;')
-                      .replace(/'/g, '&#39;')
-                      .replace(/`/g, '&#96;');
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/"/g, '&quot;')
+                            .replace(/'/g, '&#39;')
+                            .replace(/`/g, '&#96;');
         }
         
         function updatePrice() {
@@ -598,12 +734,14 @@ HTML_TEMPLATE = """
 
             const isTtsIncluded = ADDONS_DATA.tts_audio.tiers_included.includes(selectedLevel);
             
+            // 1. Manejar Add-on de Imagen
             if (imageCheckbox.checked) {
                 totalPrice += ADDONS_DATA.image_analysis.price;
             }
 
+            // 2. Manejar Add-on de Audio (Solo si no está incluido en el Tier)
             if (isTtsIncluded) {
-                audioCheckbox.checked = true;
+                audioCheckbox.checked = true; // Forzar selección
                 audioCheckbox.disabled = true;
                 document.getElementById('tts-price-display').textContent = '(Incluido)';
             } else {
@@ -617,6 +755,7 @@ HTML_TEMPLATE = """
             totalDisplay.textContent = `$${totalPrice}`;
             submitButton.innerHTML = `Pagar $${totalPrice} y Ejecutar Servicio Seleccionado`;
             
+            // Actualizar tiempo simulado en el título
             document.getElementById('current-max-time').textContent = tierInfo.max_time_min;
         }
 
@@ -645,12 +784,12 @@ HTML_TEMPLATE = """
                 if (secondsLeft <= 0) {
                     clearInterval(countdownInterval);
                     timerElement.classList.add('hidden');
-                    messageElement.innerHTML = '<span class="text-green-600 font-bold">✅ ¡Análisis Completado! Revise los resultados abajo.</span>';
+                    messageElement.innerHTML = '<span class="text-green-600 font-bold"> ¡Análisis Completado! Revise los resultados abajo.</span>';
                     isSessionActive = false;
                 }
             }, 1000);
         }
-        
+    
         function showMessage(type, title, content) {
             const modal = document.getElementById('message-modal');
             document.getElementById('modal-title').textContent = title;
@@ -685,6 +824,7 @@ HTML_TEMPLATE = """
             const ttsIncluded = data.fulfillment.tts_included;
             const fileName = data.fulfillment.file_info || 'N/A';
             
+            // Detener el temporizador simulado
             if (countdownInterval) {
                 clearInterval(countdownInterval);
             }
@@ -693,35 +833,32 @@ HTML_TEMPLATE = """
 
             let ttsButtonHtml = '';
             if (ttsIncluded && analysisText) {
-                const cleanText = analysisText.replace(/(\r\n|\n|\r)/gm, " ");
-                const escapedText = JSON.stringify(cleanText);
-                
+                // Sanitizar texto para la función JS, usando JSON.stringify
+                const escapedText = JSON.stringify(analysisText.replace(/"/g, ''));
                 ttsButtonHtml = `
                     <button onclick='generateAndPlayAudio(${escapedText}, this)' class="mt-4 w-full md:w-auto px-6 py-3 bg-indigo-600 text-white font-semibold rounded-full shadow-md hover:bg-indigo-700 transition duration-150 flex items-center justify-center">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5 mr-2">
                             <path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25Zm4.28 10.28a.75.75 0 0 0 0-1.06l-3-3a.75.75 0 1 0-1.06 1.06l1.72 1.72H8.25a.75.75 0 0 0 0 1.5h5.69l-1.72 1.72a.75.75 0 1 0 1.06 1.06l3-3Z" clip-rule="evenodd" />
                         </svg>
-                        ▶️ Reproducir Análisis
+                          Reproducir Análisis
                     </button>
                 `;
             }
             
-            // 1. AVISO DE SIMULACIÓN Y EXPERIMENTAL (NUEVO)
-            const simulationWaiver = `
-                <div class="p-3 mb-4 bg-red-100 border-l-4 border-red-500 text-red-700 font-bold">
-                    ⚠️ IMPORTANTE: SIMULACIÓN CLÍNICA Y EXPERIMENTAL ⚠️
-                    <p class="text-sm font-normal mt-1">El diagnóstico y **especialmente el tratamiento medicamentoso propuesto aquí son puramente SIMULADOS y EXPERIMENTALES**. DEBE ser revisado y validado por un profesional de la salud con licencia. NO INICIE NINGÚN TRATAMIENTO BASADO EN ESTA RESPUESTA.</p>
+            // CRÍTICO: Nueva advertencia en el resultado para el voluntario
+            const warningHtml = `
+                <div class="p-3 bg-red-100 border border-red-400 text-red-800 rounded-lg font-bold mb-4">
+                    🛑 ADVERTENCIA: El "Diagnóstico Hipotético" y "Tratamiento Hipotético" a continuación NO son reales. Consulte un médico licenciado.
                 </div>
             `;
-
-
+            
             resultBox.innerHTML = `
                 <div class="bg-white p-6 rounded-xl shadow-2xl animate-fadeIn">
                     <h2 class="text-2xl font-extrabold text-emerald-700 border-b pb-3 mb-4 flex items-center">
-                        <span class="mr-2">✨</span> Resultado de Análisis Clínico
+                        <span class="mr-2"></span> Resultado de Análisis Clínico (Simulado)
                     </h2>
                     
-                    ${simulationWaiver} 
+                    ${warningHtml}
 
                     <div class="mb-4 text-sm text-gray-600 space-y-1">
                         <p><strong>Nivel de Servicio:</strong> ${TIERS_DATA[data.fulfillment.service_level].name}</p>
@@ -743,8 +880,10 @@ HTML_TEMPLATE = """
         }
 
         document.addEventListener('DOMContentLoaded', () => {
+            // Inicializar UI
             updatePrice();
             
+            // Listeners para actualizar precio
             const form = document.getElementById('service-form');
             form.addEventListener('change', (e) => {
                 if (e.target.name === 'service_level' || e.target.type === 'checkbox') {
@@ -752,6 +891,7 @@ HTML_TEMPLATE = """
                 }
             });
 
+            // Listener para submit
             form.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 if (isSessionActive) {
@@ -766,9 +906,8 @@ HTML_TEMPLATE = """
                 
                 const formData = new FormData(form);
                 formData.append('user_id', DEMO_USER_ID);
-                
-                let result = null;
 
+                let result;
                 try {
                     const response = await fetch(`${RENDER_APP_URL}/create-service`, {
                         method: 'POST',
@@ -779,9 +918,11 @@ HTML_TEMPLATE = """
 
                     if (response.ok) {
                         if (result.status === 'payment_required') {
+                            // Flujo de Pago: Redireccionar a Stripe 
                             window.location.href = result.payment_url;
-                            return; 
+                            return; // Importante: Salir del flujo para evitar restaurar el botón
                         } else if (result.status === 'success') {
+                            // Bypass: Ejecución inmediata de la IA
                             showMessage('success', 'Análisis Inmediato (Bypass)', 'El análisis de prueba ha sido generado por la IA.');
                             displayResult(result);
                         }
@@ -792,12 +933,14 @@ HTML_TEMPLATE = """
                     console.error("Fallo al enviar el formulario:", error);
                     showMessage('error', 'Error de Conexión', `No se pudo procesar la solicitud: ${error.message}`);
                 } finally {
+                    // Restaurar el botón si no hubo redirección de pago
                     if (!result || result.status !== 'payment_required') {
                         submitButton.innerHTML = originalText;
                         submitButton.disabled = false;
                     }
                 }
 
+                // Si es un bypass, iniciar el temporizador de espera asíncrona (simulado)
                 if (result && result.status === 'success') {
                     const selectedLevel = parseInt(form.elements['service_level'].value);
                     const maxTime = TIERS_DATA[selectedLevel].max_time_min;
@@ -807,125 +950,6 @@ HTML_TEMPLATE = """
         });
 
     </script>
-
-    <div class="max-w-4xl w-full">
-        <header class="text-center mb-10 p-6 bg-white rounded-xl shadow-xl">
-            <h1 class="text-4xl font-extrabold text-gray-900 mb-2">Ateneo Clínico IA</h1>
-            <p class="text-lg text-emerald-600 font-medium">Análisis Clínico Asistido por Inteligencia Artificial</p>
-            <p class="mt-2 text-sm text-gray-500">Tiempo de Análisis Estimado (Simulado): <span id="current-max-time" class="font-bold">5</span> minutos.</p>
-            
-            <div class="mt-4 p-4 bg-red-100 border border-red-300 rounded-lg shadow-inner">
-                <h3 class="text-base font-bold text-red-700 mb-1">⚖️ ADVERTENCIA OBLIGATORIA (WAIVER)</h3>
-                <div class="text-xs text-red-600 space-y-1">
-                    <p class="font-bold">ESTO NO ES UN SERVICIO MÉDICO REAL.</p>
-                    <p>La plataforma es solo para fines académicos y de debate. Las respuestas de IA (incluyendo el tratamiento medicamentoso) son puramente **SIMULACIONES EXPERIMENTALES**.</p>
-                    <p>Debe consultar siempre con un **PROFESIONAL DE LA SALUD HUMANO Y LICENCIADO** para cualquier diagnóstico o decisión de salud. Usted renuncia a cualquier reclamo legal contra la plataforma o sus administradores.</p>
-                </div>
-            </div>
-            
-        </header>
-
-        <form id="service-form" class="space-y-8">
-            <div class="card p-6 bg-white rounded-xl">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">1. Seleccione Nivel de Análisis</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-                    {TIER_CARDS_HTML}
-                </div>
-            </div>
-
-            <div class="card p-6 bg-white rounded-xl">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">2. Detalle el Caso Clínico</h2>
-                
-                <div class="mb-6">
-                    <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Descripción del Caso / Anamnesis</label>
-                    <textarea id="description" name="description" rows="5" placeholder="Ingrese síntomas, historial relevante, edad, medicamentos, etc." class="w-full border-gray-300 rounded-lg shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-3"></textarea>
-                </div>
-
-                <div class="mb-6">
-                    <label for="clinical_file" class="block text-sm font-medium text-gray-700 mb-1">Adjuntar Archivo o Imagen (Opcional)</label>
-                    <input type="file" id="clinical_file" name="clinical_file" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer" accept="image/jpeg,image/png,image/webp,.pdf,.docx,.txt">
-                    <p class="mt-1 text-xs text-gray-500">Archivos aceptados: Imágenes (JPG, PNG, WEBP), PDF, DOCX, TXT.</p>
-                </div>
-
-                <div class="border-t pt-4">
-                    <h3 class="text-lg font-bold text-gray-800 mb-3">Add-ons Opcionales</h3>
-                    <div class="space-y-3">
-                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <label for="include_image_analysis" class="flex items-center cursor-pointer">
-                                <input type="checkbox" id="include_image_analysis" name="include_image_analysis" class="h-4 w-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500">
-                                <span class="ml-3 text-sm font-medium text-gray-700">🔬 Añadir Análisis de Imagen/Laboratorio ($${ADDONS_DATA.image_analysis.price})</span>
-                            </label>
-                        </div>
-
-                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <label for="include_tts_addon" class="flex items-center cursor-pointer">
-                                <input type="checkbox" id="include_tts_addon" name="include_tts_addon" class="h-4 w-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500">
-                                <span class="ml-3 text-sm font-medium text-gray-700">🎧 Generar Audio Profesional del Análisis (TTS)</span>
-                            </label>
-                            <span id="tts-price-display" class="text-xs font-semibold text-emerald-600">($${ADDONS_DATA.tts_audio.price} Add-on)</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="card p-6 bg-emerald-50 rounded-xl flex flex-col items-center">
-                <h2 class="text-3xl font-extrabold text-emerald-700 mb-4">Total: <span id="total-price-display">$10</span> USD</h2>
-                
-                <button type="submit" class="w-full md:w-auto px-10 py-4 bg-emerald-600 text-white font-bold rounded-xl text-lg hover:bg-emerald-700 transition duration-300 shadow-lg" id="submit-button">
-                    Pagar $10 y Ejecutar Servicio Seleccionado
-                </button>
-                
-                <div class="mt-6 text-center text-sm text-gray-600">
-                    <p class="font-bold mb-2">MODO DE DESARROLLO (Bypass Gratuito)</p>
-                    <input type="text" name="developer_bypass_key" placeholder="Clave de Bypass" class="text-center w-48 border-gray-300 rounded-lg shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-2 text-sm">
-                </div>
-            </div>
-        </form>
-        
-        <div id="timer-box" class="card p-4 mt-8 bg-blue-100 border-blue-300 text-blue-800 rounded-xl shadow-lg hidden">
-            <div class="flex items-center justify-between">
-                <div class="font-bold flex items-center">
-                    <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Procesando Análisis...
-                </div>
-                <div id="timer-display" class="font-extrabold text-lg">00:00</div>
-            </div>
-            <div id="timer-message" class="mt-2 text-sm font-medium">Esperando respuesta asíncrona del backend.</div>
-        </div>
-
-        <div id="analysis-result-box" class="mt-10">
-            </div>
-        
-        <div class="mt-10 p-6 bg-red-50 border border-red-300 rounded-xl shadow-md">
-            <h3 class="text-xl font-bold text-red-700 mb-3">⚖️ AVISO LEGAL DE DATOS (NO HIPAA)</h3>
-            <div class="text-sm text-red-600 space-y-2">
-                <p>Esta plataforma es solo para fines académicos, educativos y de debate clínico.</p>
-                <p>Los datos o archivos enviados son simulaciones, no constituyen diagnóstico ni historia clínica real (no cubre HIPAA).</p>
-                <p>Las respuestas de IA o profesionales no reemplazan atención médica, y usted renuncia a cualquier reclamo legal contra administradores o participantes.</p>
-                <p>Al usar la plataforma, autoriza el uso académico o investigativo del material compartido y acepta que cualquier decisión de salud debe consultarse con un médico licenciado.</p>
-            </div>
-        </div>
-
-    </div>
-    
-    <div id="overlay" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden transition-opacity z-40" onclick="closeModal()"></div>
-    <div id="message-modal" class="fixed inset-0 z-50 overflow-y-auto hidden">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 relative">
-                <button class="absolute top-3 right-3 text-gray-400 hover:text-gray-600" onclick="closeModal()">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
-                <div class="flex items-center mb-4">
-                    <span id="modal-icon" class="mr-3"></span>
-                    <h3 id="modal-title" class="text-lg font-bold text-gray-900"></h3>
-                </div>
-                <div id="modal-content" class="text-sm text-gray-700"></div>
-            </div>
-        </div>
-    </div>
 
 </body>
 </html>
