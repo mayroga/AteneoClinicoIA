@@ -71,6 +71,9 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
     """
     Genera el análisis clínico con instrucciones específicas para control de tokens 
     y maneja la entrada multimodal (texto + imagen).
+    
+    CRÍTICO: La system_instruction incluye las advertencias legales y la OBLIGACIÓN
+    de incluir el tratamiento medicamentoso.
     """
     if not gemini_client:
         return {
@@ -79,10 +82,12 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
             "prompt_used": prompt
         }
     
-    # 1. CONSTRUCCIÓN DE LA INSTRUCCIÓN DEL SISTEMA
+    # 1. CONSTRUCCIÓN DE LA INSTRUCCIÓN DEL SISTEMA (REGLAS ÉTICAS Y DE CONTENIDO)
     system_instruction = (
-        f"Eres un analista clínico experto que debe actuar como un humano profesional. {token_instruction} "
-        "Analiza el caso. Detecta automáticamente el idioma de la consulta y responde íntegramente en ese mismo idioma. "
+        f"Eres un analista clínico experto. **Tu análisis DEBE ser un 'Servicio Completo' incluyendo OBLIGATORIAMENTE una sección de TRATAMIENTO MEDICAMENTOSO (Farmacológico)** para debate, sin importar el nivel. "
+        "El objetivo es proveer una respuesta para debate profesional y educativo. "
+        f"ALERTA CRÍTICA: Debes comenzar tu respuesta con la siguiente ADVERTENCIA CLARA en mayúsculas: 'ADVERTENCIA: TRATAMIENTO EXPERIMENTAL. ESTE ANÁLISIS, INCLUYENDO EL TRATAMIENTO FARMACOLÓGICO SUGERIDO, NO ES REAL, ES EXPERIMENTAL Y TIENE FINES EXCLUSIVOS DE DEBATE Y ENTRENAMIENTO PARA PROFESIONALES DE SALUD LICENCIADOS. NUNCA DEBE APLICARSE EN PACIENTES REALES. EL VOLUNTARIO GANA AYUDANDO A DESARROLLAR ESTE DEBATE.' "
+        f"{token_instruction} Analiza el caso. Detecta automáticamente el idioma de la consulta y responde íntegramente en ese mismo idioma. "
     )
 
     # 2. CONSTRUCCIÓN DE LA ENTRADA MULTIMODAL (parts)
@@ -842,10 +847,12 @@ HTML_TEMPLATE = """
         <!-- AVISO LEGAL OBLIGATORIO (WAIVER) -->
         <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-lg" role="alert">
             <p class="font-bold text-red-700 flex items-center text-lg mb-2">
-                <span class="mr-2">⚖️</span> AVISO LEGAL (WAIVER OBLIGATORIO)
+                <span class="mr-2">⚖️</span> AVISO LEGAL CRÍTICO (WAIVER OBLIGATORIO)
             </p>
             <ul class="list-disc ml-6 text-sm text-red-600 space-y-1">
                 <li>Esta plataforma es solo para fines académicos, educativos y de debate clínico.</li>
+                <li>**TRATAMIENTO FARMACOLÓGICO (EXPERIMENTAL):** Cualquier sugerencia de tratamiento medicamentoso incluida en el análisis es puramente experimental, **NO ES REAL**, y tiene como único fin el debate entre profesionales de salud.</li>
+                <li>El rol del voluntario es ayudar a desarrollar el debate y el criterio de los profesionales licenciados.</li>
                 <li>Los datos o archivos enviados son simulaciones, no constituyen diagnóstico ni historia clínica real (no cubre HIPAA).</li>
                 <li>Las respuestas de IA o profesionales no reemplazan atención médica, y usted renuncia a cualquier reclamo legal contra administradores o participantes.</li>
                 <li>Al usar la plataforma, autoriza el uso académico o investigativo del material compartido y acepta que cualquier decisión de salud debe consultarse con un médico licenciado.</li>
@@ -854,7 +861,7 @@ HTML_TEMPLATE = """
 
         <!-- CONTADOR VISIBLE (TIMER) -->
         <div id="timer-box" class="mb-6 p-3 bg-white shadow-inner rounded-xl hidden">
-            <p id="timer-display" class="text-2xl font-extrabold text-center hidden"></p>
+            <p id="timer-display" class="text-2xl font-extrabold text-center"></p>
             <div id="timer-message" class="text-center"></div>
         </div>
 
