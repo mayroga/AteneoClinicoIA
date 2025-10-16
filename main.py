@@ -417,9 +417,6 @@ async def serve_frontend():
                     {tasks}
                 </ul>
             </label>
-            <div class="text-xs text-center pt-2 font-medium text-emerald-500 mt-auto">
-                 Tokens controlados para este alcance.
-            </div>
         </div>
         """
         
@@ -440,7 +437,7 @@ HTML_TEMPLATE = """
 <html lang="es">
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ateneo Clínico IA - Monetización Avanzada</title>
+    <title>Ateneo Clínico IA - Estructura de Servicios Avanzada</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #e0f2f1 0%, #f7f9fb 100%); }
@@ -742,7 +739,7 @@ HTML_TEMPLATE = """
                                 <p class="whitespace-pre-wrap text-gray-800 text-sm leading-relaxed">${analysisText || response.fulfillment.analysis_result.reason}</p>
                             </div>
                             <p class="text-xs text-gray-500 mt-2">
-                                Nota: El texto se controló estrictamente a un máximo de palabras (tokens) según el nivel de servicio.
+                                Nota: El texto se controló estrictamente a un máximo de palabras según el nivel de servicio seleccionado.
                             </p>
                         ` : `
                             <p class="text-lg font-semibold text-emerald-700">⚙️ Herramienta Activada:</p>
@@ -838,14 +835,21 @@ HTML_TEMPLATE = """
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-emerald-600 mr-3" viewBox="0 0 20 20" fill="currentColor">
                 <path d="M10 2a8 8 0 00-8 8c0 1.76.71 3.42 1.95 4.67l.14-.14C4.38 13.56 5 12.83 5 12a5 5 0 0110 0c0 .83.62 1.56 1.85 2.53l.14.14A8 8 0 0010 2zm0 14a6 6 0 110-12 6 6 0 010 12zM9 9a1 1 0 112 0v3a1 1 0 11-2 0V9z" />
             </svg>
-            Ateneo Clínico IA: Monetización 1000%
+            Ateneo Clínico IA: Estructura de Servicios Avanzada
         </h1>
         <p class="text-xl font-medium text-emerald-700 mb-4">Estructura por Alcance Funcional + Add-ons. Tiempo simulado por caso: <span id="current-max-time" class="font-extrabold"></span> minutos.</p>
 
         <!-- AVISO LEGAL OBLIGATORIO (WAIVER) -->
         <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-lg" role="alert">
-            <p class="font-bold text-red-700">AVISO LEGAL (WAIVER OBLIGATORIO)</p>
-            <p class="text-sm text-red-600">Esta plataforma es para fines académicos/debate. **NO se procesan datos sensibles (HIPAA)**. Archivos adjuntos son para simulación.</p>
+            <p class="font-bold text-red-700 flex items-center text-lg mb-2">
+                <span class="mr-2">⚖️</span> AVISO LEGAL (WAIVER OBLIGATORIO)
+            </p>
+            <ul class="list-disc ml-6 text-sm text-red-600 space-y-1">
+                <li>Esta plataforma es solo para fines académicos, educativos y de debate clínico.</li>
+                <li>Los datos o archivos enviados son simulaciones, no constituyen diagnóstico ni historia clínica real (no cubre HIPAA).</li>
+                <li>Las respuestas de IA o profesionales no reemplazan atención médica, y usted renuncia a cualquier reclamo legal contra administradores o participantes.</li>
+                <li>Al usar la plataforma, autoriza el uso académico o investigativo del material compartido y acepta que cualquier decisión de salud debe consultarse con un médico licenciado.</li>
+            </ul>
         </div>
 
         <!-- CONTADOR VISIBLE (TIMER) -->
