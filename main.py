@@ -143,8 +143,8 @@ def create_stripe_checkout_session(price: int, product_name: str, metadata: dict
 
 # =========================================================================
 # 3. HTML (Template para la Interfaz)
-# NOTA: Las llaves internas de CSS/JS (que no son placeholders de Python) deben 
-# ser escapadas con doble llave {{ y }} para evitar el error de KeyError.
+# NOTA: Todas las llaves internas de CSS/JS deben ser escapadas con doble llave 
+# {{ y }} para evitar el error de ValueError/KeyError de Python.
 # =========================================================================
 
 HTML_TEMPLATE = """
@@ -172,11 +172,11 @@ HTML_TEMPLATE = """
         const STRIPE_PK = "{STRIPE_PK}"; // Clave pública de Stripe, solo para referencia visual
         const DEMO_USER_ID = 1; 
 
-        function handleResponse(response, formId) {
+        function handleResponse(response, formId) {{ // <<<<<< ESCAPADO
             const resultsDiv = document.getElementById('results-' + formId);
             resultsDiv.innerHTML = ''; 
             
-            if (response.payment_url) {
+            if (response.payment_url) {{ // <<<<<< ESCAPADO
                 // Flujo de pago real
                 resultsDiv.innerHTML = `
                     <div class="bg-yellow-100 border border-yellow-400 text-yellow-700 p-4 rounded-md mt-4">
@@ -190,10 +190,10 @@ HTML_TEMPLATE = """
                         </p>
                     </div>
                 `;
-                setTimeout(() => {
+                setTimeout(() => {{ // <<<<<< ESCAPADO
                     window.location.href = response.payment_url; 
-                }}, 3000);
-            } else if (response.status === "success") {
+                }}, 3000); // <<<<<< ESCAPADO
+            }} else if (response.status === "success") {{ // <<<<<< ESCAPADO
                 // Flujo de éxito (incluyendo Bypass y resultados del análisis Gemini)
                  resultsDiv.innerHTML = `
                     <div class="bg-green-100 border border-green-400 text-green-700 p-4 rounded-md mt-4">
@@ -210,7 +210,7 @@ HTML_TEMPLATE = """
 
                     </div>
                 `;
-            } else {
+            }} else {{ // <<<<<< ESCAPADO
                 // Respuesta inesperada o error
                 resultsDiv.innerHTML = `
                     <div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-md mt-4">
@@ -218,36 +218,36 @@ HTML_TEMPLATE = """
                         <pre class="whitespace-pre-wrap">${{JSON.stringify(response, null, 2)}}</pre>
                     </div>
                 `;
-            }
-        }
+            }} // <<<<<< ESCAPADO
+        }} // <<<<<< ESCAPADO
 
-        async function submitForm(event, endpoint, formId) {
+        async function submitForm(event, endpoint, formId) {{ // <<<<<< ESCAPADO
             event.preventDefault();
             const form = event.target;
             const resultsDiv = document.getElementById('results-' + formId);
             resultsDiv.innerHTML = '<div class="mt-4 p-4 text-center text-blue-500 font-semibold">Procesando... Verificando API...</div>';
 
-            try {
+            try {{ // <<<<<< ESCAPADO
                 const formData = new FormData(form);
-                if (!formData.has('user_id')) { formData.append('user_id', DEMO_USER_ID); }
+                if (!formData.has('user_id')) {{ formData.append('user_id', DEMO_USER_ID); }} // <<<<<< ESCAPADO
 
                 const fullUrl = `${{RENDER_APP_URL}}\${{endpoint}}`;
                 
-                const response = await fetch(fullUrl, {
+                const response = await fetch(fullUrl, {{ // <<<<<< ESCAPADO
                     method: 'POST',
                     body: formData
-                });
+                }}); // <<<<<< ESCAPADO
 
                 const data = await response.json();
                 
-                if (!response.ok) {
+                if (!response.ok) {{ // <<<<<< ESCAPADO
                     // Manejo de errores 4xx/5xx de FastAPI
                     throw new Error(data.detail ? JSON.stringify(data.detail) : `Error \${{response.status}}: Error de servidor.`);
-                }
+                }} // <<<<<< ESCAPADO
 
                 handleResponse(data, formId);
 
-            } catch (error) {
+            }} catch (error) {{ // <<<<<< ESCAPADO
                 resultsDiv.innerHTML = `
                     <div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-md mt-4">
                         <p class="font-bold">Error de Conexión o Validación:</p>
@@ -256,26 +256,26 @@ HTML_TEMPLATE = """
                     </div>
                 `;
                 console.error("Error en la solicitud:", error);
-            }
-        }
+            }} // <<<<<< ESCAPADO
+        }} // <<<<<< ESCAPADO
 
-        function switchTab(tabName) {
-            document.querySelectorAll('.tab-content').forEach(content => {
+        function switchTab(tabName) {{ // <<<<<< ESCAPADO
+            document.querySelectorAll('.tab-content').forEach(content => {{ // <<<<<< ESCAPADO
                 content.classList.add('hidden');
-            });
+            }}); // <<<<<< ESCAPADO
             document.getElementById(tabName + '-content').classList.remove('hidden');
 
-            document.querySelectorAll('.tab-button').forEach(button => {
+            document.querySelectorAll('.tab-button').forEach(button => {{ // <<<<<< ESCAPADO
                 button.classList.remove('active', 'bg-green-600', 'text-white');
                 button.classList.add('text-green-700', 'hover:bg-green-100');
-            });
+            }}); // <<<<<< ESCAPADO
             document.getElementById(tabName + '-button').classList.add('active', 'bg-green-600', 'text-white');
             document.getElementById(tabName + '-button').classList.remove('text-green-700', 'hover:bg-green-100');
-        }
+        }} // <<<<<< ESCAPADO
 
-        window.onload = () => {
+        window.onload = () => {{ // <<<<<< ESCAPADO
             switchTab('volunteer');
-        };
+        }}; // <<<<<< ESCAPADO
     </script>
 
     <div class="w-full max-w-4xl bg-white p-6 md:p-10 rounded-xl card">
