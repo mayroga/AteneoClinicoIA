@@ -235,6 +235,7 @@ async def create_service(
         analysis_result = await call_gemini_api(prompt, prompt_instruction, image_data=image_data_base64)
         file_info = clinical_file.filename if clinical_file else None
         
+        # El TTS se incluye si lo pide O si el nivel lo incluye (para la prueba de bypass)
         tts_included = include_tts_addon or service_level in ADDONS["tts_audio"]["tiers_included"]
         
         return {
@@ -277,19 +278,24 @@ async def create_service(
             'quantity': 1,
         })
 
-    # 2.3. Manejar Add-on de Audio
+    # 2.3. Manejar Add-on de Audio (EVITAR DOBLE COBRO)
     is_tts_included = service_level in ADDONS["tts_audio"]["tiers_included"]
-    if include_tts_addon and not is_tts_included:
+    
+    # Solo añadir el cargo si el usuario lo marcó Y NO está ya incluido en el Nivel.
+    if include_tts_addon and not is_tts_included: 
         addon_info = ADDONS["tts_audio"]
         total_price += addon_info["price"]
         line_items.append({
             'price_data': {
                 'currency': 'usd',
-                'product_data': {'name': addon_info["name"]},
+                'product_data': {'name': f"{addon_info['name']} (Extra)"},
                 'unit_amount': addon_info["price"] * 100,
             },
             'quantity': 1,
         })
+        
+    # La bandera de metadatos DEBE reflejar si el audio fue pagado O estaba incluido.
+    is_audio_charged_or_included = include_tts_addon or is_tts_included
     
     # La información esencial se pasa al Webhook a través de Metadata
     metadata = {
@@ -297,7 +303,7 @@ async def create_service(
         "service_level": str(service_level),
         "description_snippet": description[:100] if description else "N/A",
         "image_analysis": "true" if include_image_analysis else "false",
-        "tts_audio": "true" if include_tts_addon or is_tts_included else "false",
+        "tts_audio": "true" if is_audio_charged_or_included else "false",
         "file_name": clinical_file.filename if clinical_file else "No File"
     }
 
@@ -563,7 +569,7 @@ HTML_TEMPLATE = """
         
         // CRÍTICO: Clave de API de Gemini para la función de Audio (DEBE SER CONFIGURADA EN EL CLIENTE)
         // ADVERTENCIA: Exponer claves de API directamente en el frontend es un riesgo de seguridad. 
-        // Para fines de prueba de concepto (experimento) se mantiene aquí, pero debe ser un servicio propio.
+        // Para fines de prueba de concepto (experimento) se mantiene aquí.
         const GEMINI_TTS_API_KEY_FRONTEND = ""; // <<-- INSERTAR CLAVE AQUÍ PARA PROBAR TTS
 
         let countdownInterval = null;
@@ -630,6 +636,7 @@ HTML_TEMPLATE = """
             const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
             const TTS_VOICE_NAME = "Kore";
 
+            // Se utiliza el API de Google Cloud para TTS, no la URL genai.
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TTS_MODEL}:generateContent?key=${GEMINI_TTS_API_KEY_FRONTEND}`;
             const natural_speech_prompt = `Di de forma natural y profesional, omitiendo cualquier mención a la puntuación o símbolos, solo el texto principal: ${text}`;
 
@@ -654,7 +661,7 @@ HTML_TEMPLATE = """
                 const part = candidate?.content?.parts?.find(p => p.inlineData && p.inlineData.mimeType.startsWith('audio/'));
 
                 if (!part || !part.inlineData.data) {
-                    throw new Error("No se pudo obtener el audio de la respuesta de Gemini. Revise la clave TTS.");
+                    throw new Error("No se pudo obtener el audio de la respuesta de Gemini. Revise la clave TTS o la cuota.");
                 }
 
                 const audioData = part.inlineData.data;
@@ -723,7 +730,7 @@ HTML_TEMPLATE = """
                 totalPrice += ADDONS_DATA.image_analysis.price;
             }
 
-            // 2. Manejar Add-on de Audio
+            // 2. Manejar Add-on de Audio (Lógica para NO DOBLE COBRO)
             if (isTtsIncluded) {
                 audioCheckbox.checked = true;
                 audioCheckbox.disabled = true;
@@ -774,7 +781,7 @@ HTML_TEMPLATE = """
             }, 1000);
         }
         
-        // Función para limpiar el formulario y resetear el estado
+        // Función para limpiar el formulario y resetear el estado (Botón "Volver")
         function clearForm() {
             document.getElementById('service-form').reset();
             document.getElementById('analysis-result-box').innerHTML = '';
@@ -824,7 +831,8 @@ HTML_TEMPLATE = """
 
         function displayResult(data) {
             const resultBox = document.getElementById('analysis-result-box');
-            const analysisText = data.fulfillment.analysis_result.analysis_text;
+            const analysisResult = data.fulfillment.analysis_result;
+            const analysisText = analysisResult.analysis_text;
             const ttsIncluded = data.fulfillment.tts_included;
             const fileName = data.fulfillment.file_info || 'N/A';
             const serviceLevel = data.fulfillment.service_level;
@@ -837,8 +845,8 @@ HTML_TEMPLATE = """
             isSessionActive = false;
 
             let ttsButtonHtml = '';
-            if (ttsIncluded && analysisText) {
-                const escapedText = JSON.stringify(analysisText.replace(/"/g, ''));
+            if (ttsIncluded && analysisResult.analysis_status === 'success') {
+                const escapedText = JSON.stringify(analysisText.replace(/"/g, '').replace(/(\r\n|\n|\r)/gm, " "));
                 ttsButtonHtml = `
                     <button onclick='generateAndPlayAudio(${escapedText}, this)' class="mt-3 w-full px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg text-sm hover:bg-indigo-700 transition duration-150 flex items-center justify-center">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4 mr-2"><path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25Zm4.28 10.28a.75.75 0 0 0 0-1.06l-3-3a.75.75 0 1 0-1.06 1.06l1.72 1.72H8.25a.75.75 0 0 0 0 1.5h5.69l-1.72 1.72a.75.75 0 1 0 1.06 1.06l3-3Z" clip-rule="evenodd" /></svg>
@@ -855,6 +863,13 @@ HTML_TEMPLATE = """
             const warningColor = serviceLevel <= 2 ? 'bg-red-100 border-red-400 text-red-800' : 'bg-blue-100 border-blue-400 text-blue-800';
             
             const warningHtml = `<div class="p-3 ${warningColor} rounded-lg font-bold text-sm mb-3">${warningText}</div>`;
+            
+            let analysisContent;
+            if (analysisResult.analysis_status === 'success') {
+                analysisContent = `<div class="bg-gray-50 p-3 rounded-lg border border-gray-200 whitespace-pre-wrap text-sm text-gray-700 overflow-x-auto">${escapeHtml(analysisText)}</div>`;
+            } else {
+                analysisContent = `<div class="bg-red-100 p-3 rounded-lg border border-red-400 text-red-800 text-sm">❌ ERROR de la IA: ${escapeHtml(analysisResult.reason)}</div>`;
+            }
             
             resultBox.innerHTML = `
                 <div class="bg-white p-4 rounded-xl shadow-2xl animate-fadeIn">
@@ -873,9 +888,7 @@ HTML_TEMPLATE = """
                     ${ttsButtonHtml}
                     
                     <h3 class="text-base font-bold text-gray-800 mt-4 mb-2 border-t pt-2">Análisis Detallado de la IA:</h3>
-                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-200 whitespace-pre-wrap text-sm text-gray-700 overflow-x-auto">
-                        ${escapeHtml(analysisText || 'Error: El análisis no devolvió texto. Revise la consola.')}
-                    </div>
+                    ${analysisContent}
                     
                     <button onclick="clearForm()" class="mt-4 w-full px-4 py-2 bg-gray-300 text-gray-700 font-bold rounded-xl text-sm hover:bg-gray-400 transition duration-300">
                         ↩️ Iniciar Nueva Consulta
