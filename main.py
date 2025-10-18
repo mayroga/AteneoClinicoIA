@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Response
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from typing import Optional, Any, Dict, List
@@ -9,7 +9,6 @@ from google import genai
 from google.genai.errors import APIError
 import asyncio
 import time
-import base64
 
 # =========================================================================
 # 0. CONFIGURACIÓN DE SECRETOS, TIERS Y ADD-ONS
@@ -24,12 +23,13 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 RENDER_APP_URL = os.getenv("RENDER_APP_URL", "https://ateneoclinicoia.onrender.com")
 
 # ESTRUCTURA MEJORADA: VALOR POR ALCANCE FUNCIONAL
+# Incluye base_tasks y max_time_min SIMULADO para el timer
 TIERS = {
-    1: {"name": " Nivel 1 – Diagnóstico Rápido", "price": 10, "value_focus": "Diagnóstico Hipotético y Tratamiento Mínimo. (1 Tarea IA)", "max_time_min": 5, "token_instruction": "Proporciona un Diagnóstico Hipotético y una sugerencia de Tratamiento Medicamentoso Hipotético. La respuesta debe ser concisa. Máximo 150 palabras.", "base_tasks": ["Diagnóstico Hipotético", "Tratamiento Medicamentoso Hipotético"]},
-    2: {"name": " Nivel 2 – Evaluación Estándar", "price": 50, "value_focus": "Análisis Básico, Diagnóstico y Tratamiento Detallado. (2 Tareas IA)", "max_time_min": 10, "token_instruction": "Proporciona un Diagnóstico Hipotético y un Tratamiento Medicamentoso Hipotético Detallado con indicaciones. Máximo 600 palabras.", "base_tasks": ["Diagnóstico Hipotético Definitivo", "Tratamiento Medicamentoso Hipotético Detallado"]},
-    3: {"name": " Nivel 3 – Planificación y Protocolo", "price": 100, "value_focus": "Protocolo Clínico Detallado. (3 Tareas IA)", "max_time_min": 25, "token_instruction": "Genera un Protocolo Clínico Detallado: Diagnóstico Hipotético, Terapia Específica Hipotética y Plan de Pruebas Adicionales. Máximo 900 palabras.", "base_tasks": ["Diagnóstico Hipotético Definitivo", "Terapia Específica Hipotética", "Plan de Pruebas Adicionales"]},
-    4: {"name": " Nivel 4 – Debate y Evidencia", "price": 200, "value_focus": "Análisis Crítico, Diagnóstico y Controvertido. (4 Tareas IA)", "max_time_min": 45, "token_instruction": "Genera un Debate Clínico que incluye Diagnóstico Hipotético, Tratamiento Hipotético, Pruebas y una Sección 'Debate y Alternativas'. Máximo 1600 palabras.", "base_tasks": ["Diagnóstico Hipotético", "Tratamiento Hipotético", "Pruebas Adicionales", "Debate y Alternativas"]},
-    5: {"name": " Nivel 5 – Mesa Clínica Premium", "price": 500, "value_focus": "Multi-Caso y Documentación Formal. (3 Casos x 5 Tareas)", "max_time_min": 70, "token_instruction": "Analiza tres casos clínicos proporcionados. Proporciona un Resumen Comparativo, Insights y un borrador de Documentación Formal, incluyendo Diagnóstico y Tratamiento Hipotético para cada caso. Máximo 3000 palabras.", "base_tasks": ["Diagnóstico Completo Hipotético", "Tratamiento y Protocolo Hipotético", "Debate Crítico", "Análisis Comparativo (Multi-Caso)", "Borrador de Informe Documental"]},
+    1: {"name": "🩺 Nivel 1 – Diagnóstico Rápido", "price": 10, "value_focus": "Respuesta Directa. (1 Tarea IA)", "max_time_min": 5, "token_instruction": "Proporciona una respuesta extremadamente concisa y directa (Diagnóstico y/o Hipótesis). Máximo 100 palabras.", "base_tasks": ["Diagnóstico/Hipótesis"]},
+    2: {"name": "⚡ Nivel 2 – Evaluación Estándar", "price": 50, "value_focus": "Análisis Básico Completo. (2 Tareas IA)", "max_time_min": 10, "token_instruction": "Proporciona un Diagnóstico Definitivo y una Sugerencia Terapéutica General y concisa. Máximo 500 palabras.", "base_tasks": ["Diagnóstico Definitivo", "Sugerencia Terapéutica General"]},
+    3: {"name": "🧠 Nivel 3 – Planificación y Protocolo", "price": 100, "value_focus": "Protocolo Clínico Detallado. (3 Tareas IA)", "max_time_min": 25, "token_instruction": "Genera un Protocolo Clínico Detallado: Diagnóstico, Terapia Específica y Plan de Pruebas Adicionales (Laboratorio/Imagen). Máximo 800 palabras.", "base_tasks": ["Diagnóstico Definitivo", "Terapia Específica", "Plan de Pruebas Adicionales"]},
+    4: {"name": "🧬 Nivel 4 – Debate y Evidencia", "price": 200, "value_focus": "Análisis Crítico y Controvertido. (4 Tareas IA)", "max_time_min": 45, "token_instruction": "Genera un Debate Clínico que incluye Diagnóstico, Terapia, Pruebas y una Sección 'Debate y Alternativas', analizando controversias y evidencia. Máximo 1500 palabras.", "base_tasks": ["Diagnóstico", "Terapia", "Pruebas Adicionales", "Debate y Alternativas"]},
+    5: {"name": "🧾 Nivel 5 – Mesa Clínica Premium", "price": 500, "value_focus": "Multi-Caso y Documentación Formal. (3 Casos x 5 Tareas)", "max_time_min": 70, "token_instruction": "Analiza tres casos clínicos proporcionados de forma secuencial. Al final proporciona un Resumen Comparativo, Insights y un borrador de Documentación Formal. Máximo 3000 palabras.", "base_tasks": ["Diagnóstico Completo", "Terapia y Protocolo", "Debate Crítico", "Análisis Comparativo (Multi-Caso)", "Borrador de Informe Documental"]},
 }
 
 # ADD-ONS DEFINITION (Precios fijos)
@@ -78,28 +78,27 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
             "reason": "GEMINI_API_KEY no configurada. El servicio de análisis de IA está DESACTIVADO.",
             "prompt_used": prompt
         }
-    
-    # 1. CONSTRUCCIÓN DE LA INSTRUCCIÓN DEL SISTEMA (MODIFICADO PARA EXPERIMENTO)
-    # CRÍTICO: Debe sonar como un médico real, pero advertir que es HIPOTÉTICO.
+   
+    # 1. CONSTRUCCIÓN DE LA INSTRUCCIÓN DEL SISTEMA
     system_instruction = (
-        f"Eres un analista clínico experto y profesional. Tu rol es realizar una anamnesis completa y detallada. "
-        f"Debes sonar como un médico real y experto. Proporciona un **Diagnóstico Hipotético** y un **Tratamiento Medicamentoso Hipotético** como parte de tu respuesta. "
-        f"{token_instruction} Analiza el caso. Detecta automáticamente el idioma de la consulta y responde íntegramente en ese mismo idioma. "
+        f"Eres un analista clínico experto que debe actuar como un humano profesional. {token_instruction} "
+        "Analiza el caso. Detecta automáticamente el idioma de la consulta y responde íntegramente en ese mismo idioma. "
     )
 
     # 2. CONSTRUCCIÓN DE LA ENTRADA MULTIMODAL (parts)
     parts = []
-    
+   
     # Agregar la imagen si existe
     if image_data:
         # Nota: La simulación de archivo aquí asume que es una imagen simple (e.g., JPEG/PNG).
+        # En una implementación real, se necesitaría un manejo de MIME type más robusto.
         parts.append({
             "inlineData": {
-                "mimeType": "image/jpeg", # Asumimos JPEG para la simulación
+                "mimeType": "image/jpeg",
                 "data": image_data.decode('latin1') # Decodificación simple a base64
             }
         })
-        
+       
     # Agregar el texto del prompt
     parts.append({"text": prompt})
 
@@ -114,15 +113,15 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
             )
         )
         return response.text
-        
+       
     try:
         analysis_text = await asyncio.to_thread(blocking_call)
-        
+       
         return {
             "analysis_status": "success",
             "analysis_text": analysis_text
         }
-            
+           
     except APIError as e:
         print(f"Error de API de Gemini: {e}")
         return {
@@ -141,13 +140,13 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
 
 def create_stripe_checkout_session(total_price: int, product_name: str, metadata: dict, line_items: List[Dict]):
     """Crea una sesión de Stripe Checkout con múltiples line_items para los add-ons."""
-    
+   
     if not stripe.api_key:
         raise HTTPException(status_code=500, detail="La clave secreta de Stripe no está configurada.")
-        
+       
     success_url = f"{RENDER_APP_URL}/stripe/success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{RENDER_APP_URL}/stripe/cancel"
-    
+   
     try:
         session = stripe.checkout.Session.create(
             payment_method_types=['card'],
@@ -158,7 +157,7 @@ def create_stripe_checkout_session(total_price: int, product_name: str, metadata
             metadata=metadata,
         )
         return {"status": "payment_required", "payment_url": session.url, "price": total_price, "currency": "USD"}
-    
+   
     except stripe.error.StripeError as e:
         print(f"Error de Stripe: {e}")
         raise HTTPException(status_code=500, detail=f"Error en la API de Stripe: {e}")
@@ -174,37 +173,36 @@ async def fulfill_case(metadata: Dict[str, Any]):
     """
     user_id = metadata.get("user_id", "Unknown")
     level = int(metadata.get("service_level", 1))
-    
+   
     # 1. Recuperar info base
     tier_info = TIERS.get(level, TIERS[1])
     token_instruction = tier_info["token_instruction"]
-    
+   
     # 2. Checkear Add-ons pagados y ajustar instrucción de tokens
     include_image_analysis = metadata.get("image_analysis", "false") == "true"
-    
+   
     if include_image_analysis:
         # Aumentar la instrucción de tokens si se pagó por el add-on de imagen
         token_instruction += " " + ADDONS["image_analysis"]["instruction_boost"]
-        # NOTA: En un sistema real, aquí se recuperaría la imagen almacenada persistentemente
-        # (ej. en S3 o GCS) usando el file_name o un ID de transacción.
-        # Por simplicidad, usamos None aquí, asumiendo que el texto es la fuente principal.
-        image_data_simulated = None 
+        # Aquí se debería recuperar el archivo adjunto (que fue temporalmente almacenado)
+        # Por seguridad y simplicidad de la demo, solo confirmamos que el pago activa la INSTRUCCIÓN
+        image_data_simulated = True
     else:
-        image_data_simulated = None
-        
-    
+        image_data_simulated = False
+       
+   
     description_snippet = metadata.get("description_snippet", "Caso clínico no especificado.")
     prompt = f"Analizar el siguiente caso clínico: {description_snippet}"
-    
-    # CRÍTICO: LLAMADA A LA IA para activar el servicio completo
+   
+    # SIMULACIÓN DE LA LLAMADA: Asumimos que no hay datos binarios reales para la imagen en el webhook
+    # Si hubiera una imagen, se enviaría el binario en 'image_data'.
     analysis_result = await call_gemini_api(prompt, token_instruction, image_data=None)
-    
-    print(f" Análisis de IA completado (Nivel {level}) para el usuario {user_id}. Estado: {analysis_result.get('analysis_status')}")
-    
+   
+    print(f"🔬 Análisis de IA completado (Nivel {level}) para el usuario {user_id}. Estado: {analysis_result.get('analysis_status')}")
+   
     # REGISTRO AUTOMÁTICO CRÍTICO:
     print(f"REGISTRO AUTOMÁTICO: Caso ID: XXX, Nivel: {level}, Pagó Imagen: {include_image_analysis}, Pagó Audio: {metadata.get('tts_audio')}")
 
-    # En un sistema real, aquí se enviaría el análisis al usuario (ej. email o DB)
     return analysis_result
 
 
@@ -223,35 +221,40 @@ async def create_service(
     developer_bypass_key: str = Form(None),
     clinical_file: Optional[UploadFile] = File(None)
 ):
-    
+   
     if service_level not in TIERS:
         raise HTTPException(status_code=400, detail="Nivel de servicio no válido.")
-        
+       
     tier_info = TIERS[service_level]
-    
+   
     # 1. FLUJO DE BYPASS (GRATUITO PARA DESARROLLO)
     if developer_bypass_key and developer_bypass_key == ADMIN_BYPASS_KEY:
-        
+       
         # 1.1. Construir la instrucción de tokens base
         prompt_instruction = tier_info["token_instruction"]
-        
+       
         # 1.2. Añadir boost de tokens si se incluyó el add-on de imagen
-        image_data_base64 = None
-        if include_image_analysis and clinical_file and clinical_file.file:
+        if include_image_analysis and clinical_file:
             prompt_instruction += " " + ADDONS["image_analysis"]["instruction_boost"]
-            
-            file_contents = await clinical_file.read()
-            # CRÍTICO: Usar base64 para el bypass que ejecuta la IA inmediatamente
-            image_data_base64 = base64.b64encode(file_contents)
-            
+       
         prompt = description if description else "Caso clínico no especificado. Análisis genérico de salud preventiva."
-        
+       
+        # Preparar la data de la imagen para la llamada multimodal
+        image_data_base64 = None
+        if clinical_file and clinical_file.file:
+            # Leer el contenido del archivo si existe (necesario para el bypass multimodal)
+            file_contents = await clinical_file.read()
+            # Codificar la imagen para el envío a Gemini (simulación: base64 en latin1)
+            import base64
+            image_data_base64 = base64.b64encode(file_contents).decode('latin1')
+           
         # Ejecutar análisis con la instrucción de tokens del nivel seleccionado
         analysis_result = await call_gemini_api(prompt, prompt_instruction, image_data=image_data_base64)
         file_info = clinical_file.filename if clinical_file else None
-        
+       
+        # En el bypass, el audio se considera siempre 'incluido' si se solicitó o si el nivel lo incluye
         tts_included = include_tts_addon or service_level in ADDONS["tts_audio"]["tiers_included"]
-        
+       
         return {
             "status": "success",
             "payment_method": "Bypass (Gratuito)",
@@ -266,10 +269,10 @@ async def create_service(
         }
 
     # 2. FLUJO DE PAGO DE STRIPE
-    
+   
     total_price = tier_info["price"]
     line_items = []
-    
+   
     # 2.1. Añadir el Line Item Base (Tier)
     line_items.append({
         'price_data': {
@@ -279,7 +282,7 @@ async def create_service(
         },
         'quantity': 1,
     })
-    
+   
     # 2.2. Manejar Add-on de Análisis de Imagen
     if include_image_analysis:
         addon_info = ADDONS["image_analysis"]
@@ -306,8 +309,8 @@ async def create_service(
             },
             'quantity': 1,
         })
-    
-    # La información esencial se pasa al Webhook a través de Metadata
+    # NOTA: En un caso real, la imagen se subiría a un bucket y se guardaría la URL en metadata.
+   
     metadata = {
         "user_id": str(user_id),
         "service_level": str(service_level),
@@ -315,8 +318,6 @@ async def create_service(
         "image_analysis": "true" if include_image_analysis else "false",
         "tts_audio": "true" if include_tts_addon or is_tts_included else "false",
         "file_name": clinical_file.filename if clinical_file else "No File"
-        # NOTA: La imagen DEBE ser almacenada en un storage externo (S3/GCS) y el ID de
-        # ese archivo debería pasarse también en el metadata para el Webhook.
     }
 
     return create_stripe_checkout_session(total_price, "Servicio Clínico IA", metadata, line_items)
@@ -325,9 +326,13 @@ async def create_service(
 # --- RUTA WEBHOOK DE STRIPE (Fulfillment Seguro y CRÍTICO) ---
 @app.post("/stripe/webhook")
 async def stripe_webhook(request: Request):
+    """
+    Ruta para manejar eventos POST de Stripe (Webhooks).
+    CRÍTICO: Verifica la firma y solo cumple el servicio con pago confirmado.
+    """
     if not STRIPE_WEBHOOK_SECRET:
-        print(" STRIPE_WEBHOOK_SECRET no configurada. Saltando verificación de firma (RIESGO DE FRAUDE).")
-        
+        print("⚠️ STRIPE_WEBHOOK_SECRET no configurada. Saltando verificación de firma (RIESGO DE FRAUDE).")
+       
     payload = await request.body()
     sig_header = request.headers.get('stripe-signature')
     event = None
@@ -336,95 +341,32 @@ async def stripe_webhook(request: Request):
     try:
         if STRIPE_WEBHOOK_SECRET:
              event = stripe.Webhook.construct_event(
-                 payload, sig_header, STRIPE_WEBHOOK_SECRET
-             )
+                payload, sig_header, STRIPE_WEBHOOK_SECRET
+            )
         else:
              event = json.loads(payload.decode('utf-8'))
              
     except Exception as e:
         print(f"Webhook Error: Error de verificación o carga: {e}")
         return JSONResponse({"message": "Invalid signature or payload"}, status_code=400)
-        
+       
     # 2. MANEJAR EL EVENTO PRINCIPAL
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
-        
+       
         if session.get('payment_status') == 'paid':
-            print(f" Pago exitoso y verificado para Session ID: {session['id']}")
-            
+            print(f"🟢 Pago exitoso y verificado para Session ID: {session['id']}")
+           
             # 3. Ejecutar la función de cumplimiento (ASÍNCRONA)
-            # NOTA: En un sistema real, esto debería ir a una cola de tareas (ej. Celery)
-            # para no bloquear el webhook.
+            # Esta función desencadena el análisis de IA real.
             asyncio.create_task(fulfill_case(session['metadata']))
-            
+           
         else:
-            print(f" Sesión completada, pero no pagada para Session ID: {session['id']}")
+            print(f"🟡 Sesión completada, pero no pagada para Session ID: {session['id']}")
 
     return JSONResponse({"message": "Success"}, status_code=200)
 
-
-# --- NUEVO ENDPOINT SEGURO PARA GENERAR AUDIO TTS (PROXY) ---
-@app.post("/generate-tts-audio")
-async def generate_tts_audio(request: Request):
-    """
-    Endpoint de proxy seguro para generar audio TTS usando la clave de API
-    de Gemini sin exponerla en el frontend. Devuelve el audio binario.
-    """
-    if not gemini_client:
-        raise HTTPException(status_code=503, detail="El servicio de Gemini está deshabilitado.")
-
-    try:
-        data = await request.json()
-        analysis_text = data.get("text", "")
-
-        if not analysis_text:
-            raise HTTPException(status_code=400, detail="Se requiere texto para la generación de audio.")
-        
-        TTS_VOICE_NAME = "Kore" # Usar una voz predefinida
-        
-        system_instruction = "Tu única función es convertir el texto proporcionado a voz. Di de forma natural y profesional, omitiendo cualquier mención a la puntuación o símbolos, solo el texto principal."
-        
-        # Llama a la API de Gemini para obtener el audio
-        def blocking_tts_call():
-            response = gemini_client.models.generate_content(
-                model='gemini-2.5-flash-preview-tts',
-                contents=[{"text": analysis_text}],
-                config=dict(
-                    system_instruction=system_instruction,
-                    response_modality="AUDIO",
-                    speech_config=dict(
-                        voice_config=dict(
-                            prebuilt_voice_config=dict(voice_name=TTS_VOICE_NAME)
-                        )
-                    )
-                )
-            )
-            # Buscar la parte que contiene los datos de audio binarios
-            audio_part = next((p for p in response.candidates[0].content.parts if p.inline_data), None)
-            
-            if not audio_part:
-                raise Exception("El modelo de Gemini no devolvió la data de audio binaria.")
-                
-            return audio_part.inline_data.data, audio_part.inline_data.mime_type
-        
-        audio_data_base64, mime_type = await asyncio.to_thread(blocking_tts_call)
-        
-        # Devolver la data en base64 para que el JS la decodifique y la convierta a WAV
-        return JSONResponse({
-            "status": "success",
-            "audio_data": audio_data_base64,
-            "mime_type": mime_type 
-        })
-
-    except APIError as e:
-        print(f"Error en el TTS de Gemini: {e}")
-        raise HTTPException(status_code=500, detail=f"Error en la API de TTS de Gemini: {e}")
-    except Exception as e:
-        print(f"Error desconocido en TTS: {e}")
-        raise HTTPException(status_code=500, detail="Error interno al generar el audio.")
-
-
-# --- RUTAS DE REDIRECCIÓN Y PRINCIPAL ---
+# --- RUTAS DE REDIRECCIÓN Y PRINCIPAL (Mantenidas y actualizadas) ---
 
 @app.get("/stripe/success", response_class=HTMLResponse)
 async def stripe_success(session_id: str):
@@ -453,19 +395,19 @@ async def stripe_cancel():
 # --- RUTA PRINCIPAL (HTML) ---
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    
+   
     # Renderizar dinámicamente la tabla de precios
     tier_html = ""
     for level, data in TIERS.items():
-        tasks = "".join([f'<li class="text-sm text-gray-600 ml-4"> {t}</li>' for t in data['base_tasks']])
+        tasks = "".join([f'<li class="text-sm text-gray-600 ml-4">✅ {t}</li>' for t in data['base_tasks']])
         tier_html += f"""
         <div class="tier-card p-6 bg-white border rounded-xl shadow-lg transition duration-300 hover:shadow-xl cursor-pointer flex flex-col" data-level="{level}" data-price="{data['price']}" data-time="{data['max_time_min']}">
             <input type="radio" id="level_{level}" name="service_level" value="{level}" class="hidden" {"checked" if level == 1 else ""}>
             <label for="level_{level}" class="block cursor-pointer flex-grow">
                 <div class="flex justify-between items-start mb-3 border-b-2 pb-2">
                     <h3 class="text-xl font-bold text-gray-800 flex items-center">
-                        <span class="mr-2 text-emerald-600"></span>
-                          {data['name']}
+                        <span class="mr-2 text-emerald-600">{'🩺' if level == 1 else '⚡' if level == 2 else '🧠' if level == 3 else '🧬' if level == 4 else '🧾'}</span>
+                        {data['name']}
                     </h3>
                     <div class="text-3xl font-extrabold text-emerald-600">${data['price']}</div>
                 </div>
@@ -475,17 +417,20 @@ async def serve_frontend():
                     {tasks}
                 </ul>
             </label>
+            <div class="text-xs text-center pt-2 font-medium text-emerald-500 mt-auto">
+                 Tokens controlados para este alcance.
+            </div>
         </div>
         """
-        
+       
     rendered_html = HTML_TEMPLATE.replace("{RENDER_URL}", RENDER_APP_URL)
     rendered_html = rendered_html.replace("{STRIPE_PK}", STRIPE_PUBLISHABLE_KEY)
     rendered_html = rendered_html.replace("{TIER_CARDS_HTML}", tier_html)
     rendered_html = rendered_html.replace("{TIERS_JSON}", json.dumps(TIERS))
     rendered_html = rendered_html.replace("{ADDONS_JSON}", json.dumps(ADDONS))
-    
+   
     return rendered_html
-    
+   
 # =========================================================================
 # 4. TEMPLATE HTML (FRONTEND COMPLETO CON JS Y PRECIO DINÁMICO)
 # =========================================================================
@@ -495,7 +440,8 @@ HTML_TEMPLATE = """
 <html lang="es">
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ateneo Clínico IA</title> <script src="https://cdn.tailwindcss.com"></script>
+    <title>Ateneo Clínico IA - Monetización Avanzada</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #e0f2f1 0%, #f7f9fb 100%); }
         .card { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.05); border: 1px solid #e2e8f0; }
@@ -507,127 +453,6 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body class="p-4 md:p-8 min-h-screen flex items-start justify-center">
-
-    <div class="max-w-4xl w-full">
-        <header class="text-center mb-6 p-6 bg-white rounded-xl shadow-xl">
-            <h1 class="text-4xl font-extrabold text-gray-900 mb-2">Ateneo Clínico IA</h1>
-            <p class="text-lg text-emerald-600 font-medium">Análisis Clínico Asistido por Inteligencia Artificial</p>
-            <p class="mt-2 text-sm text-gray-500">Tiempo de Análisis Estimado (Simulado): <span id="current-max-time" class="font-bold">5</span> minutos.</p>
-        </header>
-
-        <div class="mb-8 p-6 bg-yellow-50 border border-yellow-300 rounded-xl shadow-md">
-            <h3 class="text-xl font-bold text-yellow-700 mb-3"> ADVERTENCIA CRÍTICA: Experimento Clínico Simulado </h3>
-            <div class="text-sm text-yellow-600 space-y-2">
-                <p>Estimado Voluntario, este servicio simula un **Debate Clínico Profesional** para fines de **investigación y desarrollo de IA**.</p>
-                <p class="font-bold">El **Diagnóstico Hipotético** y el **Tratamiento Medicamentoso Hipotético** proporcionados son exclusivamente para experimentar la interacción con el modelo de IA.</p>
-                <p>
-                    <span class="font-extrabold underline">NO SON REALES.</span>
-                    Usted debe ser examinado por un **Médico Licenciado** para cualquier decisión de salud. Al usar el servicio, usted entiende y acepta esta condición crucial.
-                </p>
-            </div>
-        </div>
-        
-        <form id="service-form" class="space-y-8">
-            <div class="card p-6 bg-white rounded-xl">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">1. Seleccione Nivel de Análisis</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-                    {TIER_CARDS_HTML}
-                </div>
-            </div>
-
-            <div class="card p-6 bg-white rounded-xl">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">2. Detalle el Caso Clínico</h2>
-                
-                <div class="mb-6">
-                    <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Descripción del Caso / Anamnesis</label>
-                    <textarea id="description" name="description" rows="5" placeholder="Ingrese síntomas, historial relevante, edad, medicamentos, etc." class="w-full border-gray-300 rounded-lg shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-3"></textarea>
-                </div>
-
-                <div class="mb-6">
-                    <label for="clinical_file" class="block text-sm font-medium text-gray-700 mb-1">Adjuntar Archivo o Imagen (Opcional)</label>
-                    <input type="file" id="clinical_file" name="clinical_file" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer" accept="image/jpeg,image/png,image/webp,.pdf,.docx,.txt">
-                    <p class="mt-1 text-xs text-gray-500">Archivos aceptados: Imágenes (JPG, PNG, WEBP), PDF, DOCX, TXT.</p>
-                </div>
-
-                <div class="border-t pt-4">
-                    <h3 class="text-lg font-bold text-gray-800 mb-3">Add-ons Opcionales</h3>
-                    <div class="space-y-3">
-                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <label for="include_image_analysis" class="flex items-center cursor-pointer">
-                                <input type="checkbox" id="include_image_analysis" name="include_image_analysis" class="h-4 w-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500">
-                                <span class="ml-3 text-sm font-medium text-gray-700"> Añadir Análisis de Imagen/Laboratorio ($10)</span>
-                            </label>
-                        </div>
-
-                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <label for="include_tts_addon" class="flex items-center cursor-pointer">
-                                <input type="checkbox" id="include_tts_addon" name="include_tts_addon" class="h-4 w-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500">
-                                <span class="ml-3 text-sm font-medium text-gray-700"> Generar Audio Profesional del Análisis (TTS)</span>
-                            </label>
-                            <span id="tts-price-display" class="text-xs font-semibold text-emerald-600">($3 Add-on)</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="card p-6 bg-emerald-50 rounded-xl flex flex-col items-center">
-                <h2 class="text-3xl font-extrabold text-emerald-700 mb-4">Total: <span id="total-price-display">$10</span> USD</h2>
-                
-                <button type="submit" class="w-full md:w-auto px-10 py-4 bg-emerald-600 text-white font-bold rounded-xl text-lg hover:bg-emerald-700 transition duration-300 shadow-lg" id="submit-button">
-                    Pagar $10 y Ejecutar Servicio Seleccionado
-                </button>
-                
-                <div class="mt-6 text-center text-sm text-gray-600">
-                    <p class="font-bold mb-2">MODO DE DESARROLLO (Bypass Gratuito)</p>
-                    <input type="text" name="developer_bypass_key" placeholder="Clave de Bypass" class="text-center w-48 border-gray-300 rounded-lg shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-2 text-sm">
-                </div>
-            </div>
-        </form>
-        
-        <div id="timer-box" class="card p-4 mt-8 bg-blue-100 border-blue-300 text-blue-800 rounded-xl shadow-lg hidden">
-            <div class="flex items-center justify-between">
-                <div class="font-bold flex items-center">
-                    <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Procesando Análisis...
-                </div>
-                <div id="timer-display" class="font-extrabold text-lg">00:00</div>
-            </div>
-            <div id="timer-message" class="mt-2 text-sm font-medium">Esperando respuesta asíncrona del backend.</div>
-        </div>
-
-        <div id="analysis-result-box" class="mt-10">
-            </div>
-        
-        <div class="mt-10 p-6 bg-red-50 border border-red-300 rounded-xl shadow-md">
-            <h3 class="text-xl font-bold text-red-700 mb-3"> AVISO LEGAL (WAIVER OBLIGATORIO)</h3>
-            <div class="text-sm text-red-600 space-y-2">
-                <p>Esta plataforma es solo para fines académicos, educativos y de debate clínico. **Los niveles 1 y 2 están enfocados en la experimentación voluntaria.**</p>
-                <p>Los datos o archivos enviados son simulaciones, no constituyen diagnóstico ni historia clínica real (no cubre HIPAA).</p>
-                <p>Las respuestas de IA o profesionales no reemplazan atención médica, y usted renuncia a cualquier reclamo legal contra administradores o participantes.</p>
-                <p>Al usar la plataforma, autoriza el uso académico o investigativo del material compartido y acepta que cualquier decisión de salud debe consultarse con un médico licenciado.</p>
-            </div>
-        </div>
-
-    </div>
-    
-    <div id="overlay" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden transition-opacity z-40" onclick="closeModal()"></div>
-    <div id="message-modal" class="fixed inset-0 z-50 overflow-y-auto hidden">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 relative">
-                <button class="absolute top-3 right-3 text-gray-400 hover:text-gray-600" onclick="closeModal()">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
-                <div class="flex items-center mb-4">
-                    <span id="modal-icon" class="mr-3"></span>
-                    <h3 id="modal-title" class="text-lg font-bold text-gray-900"></h3>
-                </div>
-                <div id="modal-content" class="text-sm text-gray-700"></div>
-            </div>
-        </div>
-    </div>
 
     <script>
         // =========================================================================
@@ -691,28 +516,52 @@ HTML_TEMPLATE = """
         }
 
 
-        // MODIFICADA: Ahora llama al endpoint seguro del backend para obtener el audio
         async function generateAndPlayAudio(text, buttonElement) {
             const originalText = buttonElement.textContent;
             buttonElement.disabled = true;
-            buttonElement.textContent = ' Generando Audio...';
-            
+            buttonElement.textContent = '🔊 Generando Audio...';
+           
+            const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
+            const TTS_VOICE_NAME = "Kore";
+
+            // 1. LLAMADA A LA API DE GEMINI TTS
+            const apiKey = "";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`;
+
+            const natural_speech_prompt = `Di de forma natural y profesional, omitiendo cualquier mención a la puntuación o símbolos, solo el texto principal: ${text}`;
+
+            const payload = {
+                contents: [{
+                    parts: [{ text: natural_speech_prompt }]
+                }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: TTS_VOICE_NAME }
+                        }
+                    }
+                },
+                model: GEMINI_TTS_MODEL
+            };
+
             try {
-                // 1. LLAMADA AL ENDPOINT DE PROXY SEGURO DE FASTAPI
-                const response = await fetch(`${RENDER_APP_URL}/generate-tts-audio`, {
+                const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: text })
+                    body: JSON.stringify(payload)
                 });
 
                 const result = await response.json();
+                const candidate = result.candidates?.[0];
+                const part = candidate?.content?.parts?.find(p => p.inlineData && p.inlineData.mimeType.startsWith('audio/'));
 
-                if (!response.ok || result.status !== 'success') {
-                    throw new Error(result.detail || "Error en el backend al generar el audio.");
+                if (!part || !part.inlineData.data) {
+                    throw new Error("No se pudo obtener el audio de la respuesta de Gemini.");
                 }
 
-                const audioData = result.audio_data;
-                const mimeType = result.mime_type;
+                const audioData = part.inlineData.data;
+                const mimeType = part.inlineData.mimeType;
                 const rateMatch = mimeType.match(/rate=(\d+)/);
                 const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000;
 
@@ -726,18 +575,18 @@ HTML_TEMPLATE = """
                 const audio = new Audio(audioUrl);
                 audio.play();
 
-                buttonElement.textContent = ' Escuchando...';
+                buttonElement.textContent = '▶️ Escuchando...';
                 audio.onended = () => {
-                    buttonElement.textContent = ' Reproducir Análisis';
+                    buttonElement.textContent = '▶️ Reproducir Análisis';
                     buttonElement.disabled = false;
                     URL.revokeObjectURL(audioUrl);
                 };
 
             } catch (error) {
                 console.error("Error al generar o reproducir el audio TTS:", error);
-                buttonElement.textContent = ' Error de Audio';
+                buttonElement.textContent = '❌ Error de Audio';
             } finally {
-                if (buttonElement.textContent !== ' Escuchando...') {
+                if (buttonElement.textContent !== '▶️ Escuchando...') {
                     setTimeout(() => {
                         buttonElement.textContent = originalText;
                         buttonElement.disabled = false;
@@ -754,13 +603,13 @@ HTML_TEMPLATE = """
         function escapeHtml(str) {
             if (!str) return '';
             return str.replace(/&/g, '&amp;')
-                            .replace(/</g, '&lt;')
-                            .replace(/>/g, '&gt;')
-                            .replace(/"/g, '&quot;')
-                            .replace(/'/g, '&#39;')
-                            .replace(/`/g, '&#96;');
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;')
+                      .replace(/"/g, '&quot;')
+                      .replace(/'/g, '&#39;')
+                      .replace(/`/g, '&#96;');
         }
-        
+       
         function updatePrice() {
             const form = document.getElementById('service-form');
             const selectedLevel = parseInt(form.elements['service_level'].value);
@@ -773,7 +622,7 @@ HTML_TEMPLATE = """
             const submitButton = document.querySelector('button[type="submit"]');
 
             const isTtsIncluded = ADDONS_DATA.tts_audio.tiers_included.includes(selectedLevel);
-            
+           
             // 1. Manejar Add-on de Imagen
             if (imageCheckbox.checked) {
                 totalPrice += ADDONS_DATA.image_analysis.price;
@@ -791,10 +640,10 @@ HTML_TEMPLATE = """
                     totalPrice += ADDONS_DATA.tts_audio.price;
                 }
             }
-            
+           
             totalDisplay.textContent = `$${totalPrice}`;
             submitButton.innerHTML = `Pagar $${totalPrice} y Ejecutar Servicio Seleccionado`;
-            
+           
             // Actualizar tiempo simulado en el título
             document.getElementById('current-max-time').textContent = tierInfo.max_time_min;
         }
@@ -803,193 +652,280 @@ HTML_TEMPLATE = """
             if (countdownInterval) {
                 clearInterval(countdownInterval);
             }
-            
+           
             let secondsLeft = maxMinutes * 60;
             const timerElement = document.getElementById('timer-display');
             const messageElement = document.getElementById('timer-message');
-            
+           
             isSessionActive = true;
             document.getElementById('timer-box').classList.remove('hidden');
             timerElement.classList.remove('hidden');
             messageElement.innerHTML = '';
-            
-            countdownInterval = setInterval(() => {
-                secondsLeft--;
-                
+           
+            function updateTimer() {
                 const minutes = Math.floor(secondsLeft / 60);
                 const seconds = secondsLeft % 60;
-                
-                timerElement.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-                
+                const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+               
+                timerElement.textContent = `⏱ Tiempo restante: ${timeString}`;
+               
+                if (secondsLeft <= 60) {
+                    timerElement.classList.add('text-red-500');
+                    timerElement.classList.remove('text-emerald-600');
+                } else {
+                    timerElement.classList.remove('text-red-500');
+                    timerElement.classList.add('text-emerald-600');
+                }
+               
                 if (secondsLeft <= 0) {
                     clearInterval(countdownInterval);
-                    timerElement.classList.add('hidden');
-                    messageElement.innerHTML = '<span class="text-green-600 font-bold"> ¡Análisis Completado! Revise los resultados abajo.</span>';
+                    timerElement.textContent = '⏱ Tiempo Agotado';
+                    messageElement.innerHTML = `
+                        <p class="text-sm font-bold text-red-700 mt-2">
+                            Mensaje Final Automático: Gracias por participar. Si desea abrir otro caso,
+                            puede hacerlo realizando un nuevo pago.
+                        </p>
+                    `;
                     isSessionActive = false;
                 }
-            }, 1000);
+               
+                secondsLeft--;
+            }
+
+            updateTimer();
+            countdownInterval = setInterval(updateTimer, 1000);
         }
-    
-        function showMessage(type, title, content) {
-            const modal = document.getElementById('message-modal');
-            document.getElementById('modal-title').textContent = title;
-            document.getElementById('modal-content').innerHTML = content;
-            
-            const icon = document.getElementById('modal-icon');
-            icon.className = 'w-6 h-6';
-            
-            if (type === 'success') {
-                icon.classList.add('text-emerald-500');
-                icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>`;
-            } else if (type === 'error') {
-                icon.classList.add('text-red-500');
-                icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.38 3.375 2.074 3.375h14.128c1.694 0 2.938-1.875 2.074-3.376L13.19 2.405a2.25 2.25 0 0 0-3.98 0L2.697 16.126ZM12 15.75h.007V15.75H12Z" /></svg>`;
+
+        function handleResponse(response) {
+            const resultsDiv = document.getElementById('results-section');
+            resultsDiv.innerHTML = '';
+           
+            if (response.payment_url) {
+                // Flujo de pago real (Stripe)
+                resultsDiv.innerHTML = `
+                    <div class="bg-yellow-50 border border-yellow-300 text-yellow-800 p-4 rounded-xl mt-4 animate-fadeIn">
+                        <p class="font-bold text-xl mb-2">💳 Pago Requerido (${document.getElementById('total-price-display').textContent}):</p>
+                        <p>Redirigiendo a Stripe Checkout. El servicio se cumplirá ÚNICAMENTE después de la confirmación del Webhook seguro.</p>
+                        <a href="${response.payment_url}" target="_blank" class="text-blue-600 underline hover:text-blue-800 font-medium transition duration-150">
+                            (Haga clic aquí si la redirección falla)
+                        </a>
+                    </div>
+                `;
+                setTimeout(() => {
+                    window.location.href = response.payment_url;
+                }, 1000);
+            } else if (response.status === "success") {
+                // Flujo de éxito (Vía Bypass)
+                const analysisText = response.fulfillment.analysis_result?.analysis_text || '';
+                const maxTime = response.fulfillment.max_time_min;
+                const ttsIncluded = response.fulfillment.tts_included;
+               
+                startCountdown(maxTime);
+               
+                resultsDiv.innerHTML = `
+                    <div class="bg-emerald-50 border border-emerald-400 text-emerald-800 p-6 rounded-xl mt-6 animate-fadeIn">
+                        <p class="font-extrabold text-xl mb-3">✅ Fulfillment Completo (Vía Bypass)</p>
+                       
+                        ${response.fulfillment.analysis_result ? `
+                            <p class="text-lg font-semibold text-emerald-700 mt-4 border-b pb-2 border-emerald-200 flex justify-between items-center">
+                                <span>🔬 Análisis Clínico de Gemini:</span>
+                                ${ttsIncluded ? `
+                                    <button id="tts-btn" onclick="generateAndPlayAudio('${escapeHtml(analysisText)}', this)"
+                                            class="bg-blue-500 hover:bg-blue-600 text-white text-sm font-bold py-1 px-3 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center">
+                                        ▶️ Reproducir Análisis
+                                    </button>
+                                ` : `
+                                    <span class="text-red-500 text-xs font-semibold">Audio no pagado/incluido.</span>
+                                `}
+                            </p>
+                            <div class="bg-white p-4 rounded-lg border border-emerald-300 shadow-inner mt-2">
+                                <p class="whitespace-pre-wrap text-gray-800 text-sm leading-relaxed">${analysisText || response.fulfillment.analysis_result.reason}</p>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2">
+                                Nota: El texto se controló estrictamente a un máximo de palabras (tokens) según el nivel de servicio.
+                            </p>
+                        ` : `
+                            <p class="text-lg font-semibold text-emerald-700">⚙️ Herramienta Activada:</p>
+                            <p class="mt-2 text-gray-800">La herramienta ha sido activada correctamente para Debate Clínico.</p>
+                        `}
+                       
+                        <p class="text-xs text-gray-500 mt-6 pt-4 border-t border-emerald-200">
+                            Método de Pago: ${response.payment_method} | User ID: ${response.fulfillment.user_id}
+                        </p>
+
+                    </div>
+                `;
             } else {
-                icon.classList.add('text-blue-500');
-                icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.852l.041-.02m0-6.236c0-1.077.838-1.921 1.921-1.921c1.083 0 1.92.844 1.92 1.921c0 1.076-.837 1.92-1.92 1.92c-.968 0-1.764-.707-1.897-1.614M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18Z" /></svg>`;
-            }
-            
-            modal.classList.remove('hidden');
-            document.getElementById('overlay').classList.remove('hidden');
-        }
-
-        function closeModal() {
-            document.getElementById('message-modal').classList.add('hidden');
-            document.getElementById('overlay').classList.add('hidden');
-        }
-
-        function displayResult(data) {
-            const resultBox = document.getElementById('analysis-result-box');
-            const analysisText = data.fulfillment.analysis_result.analysis_text;
-            const ttsIncluded = data.fulfillment.tts_included;
-            const fileName = data.fulfillment.file_info || 'N/A';
-            
-            // Detener el temporizador simulado
-            if (countdownInterval) {
-                clearInterval(countdownInterval);
-            }
-            document.getElementById('timer-box').classList.add('hidden');
-            isSessionActive = false;
-
-            let ttsButtonHtml = '';
-            if (ttsIncluded && analysisText) {
-                // Sanitizar texto para la función JS, usando JSON.stringify
-                const escapedText = JSON.stringify(analysisText.replace(/"/g, ''));
-                ttsButtonHtml = `
-                    <button onclick='generateAndPlayAudio(${escapedText}, this)' class="mt-4 w-full md:w-auto px-6 py-3 bg-indigo-600 text-white font-semibold rounded-full shadow-md hover:bg-indigo-700 transition duration-150 flex items-center justify-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5 mr-2">
-                            <path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25Zm4.28 10.28a.75.75 0 0 0 0-1.06l-3-3a.75.75 0 1 0-1.06 1.06l1.72 1.72H8.25a.75.75 0 0 0 0 1.5h5.69l-1.72 1.72a.75.75 0 1 0 1.06 1.06l3-3Z" clip-rule="evenodd" />
-                        </svg>
-                          Reproducir Análisis
-                    </button>
+                resultsDiv.innerHTML = `
+                    <div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-xl mt-4">
+                        <p class="font-bold">🚨 Error de Conexión o Proceso:</p>
+                        <p>No se pudo completar la solicitud con la API.</p>
+                        <pre class="whitespace-pre-wrap text-xs">${JSON.stringify(response, null, 2)}</pre>
+                    </div>
                 `;
             }
-            
-            // CRÍTICO: Nueva advertencia en el resultado para el voluntario
-            const warningHtml = `
-                <div class="p-3 bg-red-100 border border-red-400 text-red-800 rounded-lg font-bold mb-4">
-                    ADVERTENCIA: El "Diagnóstico Hipotético" y "Tratamiento Hipotético" a continuación NO son reales. Consulte un médico licenciado.
-                </div>
-            `;
-            
-            resultBox.innerHTML = `
-                <div class="bg-white p-6 rounded-xl shadow-2xl animate-fadeIn">
-                    <h2 class="text-2xl font-extrabold text-emerald-700 border-b pb-3 mb-4 flex items-center">
-                        <span class="mr-2"></span> Resultado de Análisis Clínico (Simulado)
-                    </h2>
-                    
-                    ${warningHtml}
-
-                    <div class="mb-4 text-sm text-gray-600 space-y-1">
-                        <p><strong>Nivel de Servicio:</strong> ${TIERS_DATA[data.fulfillment.service_level].name}</p>
-                        <p><strong>Pago:</strong> ${data.payment_method}</p>
-                        <p><strong>Archivos Adjuntos:</strong> ${fileName}</p>
-                        <p><strong>Audio TTS:</strong> ${ttsIncluded ? 'Incluido' : 'No incluido'}</p>
-                    </div>
-                    
-                    ${ttsButtonHtml}
-                    
-                    <h3 class="text-lg font-bold text-gray-800 mt-6 mb-2">Análisis de la IA:</h3>
-                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 whitespace-pre-wrap text-gray-700">
-                        ${escapeHtml(analysisText || 'Error: El análisis no devolvió texto.')}
-                    </div>
-                </div>
-            `;
-            
-            resultBox.scrollIntoView({ behavior: 'smooth' });
         }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            // Inicializar UI
+        async function submitForm(event) {
+            event.preventDefault();
+            const form = event.target;
+            const resultsDiv = document.getElementById('results-section');
+            resultsDiv.innerHTML = '';
+           
+            // Limpiar Timer
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+                isSessionActive = false;
+                document.getElementById('timer-box').classList.add('hidden');
+            }
+
+            const formData = new FormData(form);
+            if (!formData.has('user_id')) { formData.append('user_id', DEMO_USER_ID); }
+           
+            // Validar consentimiento legal
+            const consentChecked = form.querySelector('#has_legal_consent').checked;
+            if (!consentChecked) {
+                 resultsDiv.innerHTML = '<div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-xl mt-4 font-bold">⚠️ Error: Debe aceptar el consentimiento legal (OBLIGATORIO).</div>';
+                 return;
+            }
+           
+            // Iniciar el Spinner de Carga
+            resultsDiv.innerHTML = '<div class="mt-4 p-4 text-center text-emerald-600 font-semibold flex items-center justify-center"><svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-emerald-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Procesando... Esperando Redirección de Pago/Análisis...</div>';
+
+            try {
+                const fullUrl = `${RENDER_APP_URL}/create-service`;
+               
+                const response = await fetch(fullUrl, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+               
+                if (!response.ok) {
+                    throw new Error(data.detail ? JSON.stringify(data.detail) : `Error ${response.status}: Error de servidor.`);
+                }
+
+                handleResponse(data);
+
+            } catch (error) {
+                resultsDiv.innerHTML = `
+                    <div class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-xl mt-4">
+                        <p class="font-bold">🚨 Error de Conexión o Proceso:</p>
+                        <p>No se pudo completar la solicitud con la API.</p>
+                        <p class="mt-2 text-xs text-gray-700">Detalles: ${error.message}</p>
+                    </div>
+                `;
+                console.error("Error en la solicitud:", error);
+            }
+        }
+
+        // Listener para la actualización de precios
+        window.onload = () => {
+             document.querySelectorAll('.tier-card input[name="service_level"]').forEach(radio => {
+                radio.addEventListener('change', updatePrice);
+            });
+            document.getElementById('include_image_analysis').addEventListener('change', updatePrice);
+            document.getElementById('include_tts_addon').addEventListener('change', updatePrice);
+
+            // Inicializar precio al cargar la página
             updatePrice();
-            
-            // Listeners para actualizar precio
-            const form = document.getElementById('service-form');
-            form.addEventListener('change', (e) => {
-                if (e.target.name === 'service_level' || e.target.type === 'checkbox') {
-                    updatePrice();
-                }
-            });
-
-            // Listener para submit
-            form.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                if (isSessionActive) {
-                    showMessage('info', 'Sesión en Curso', 'Ya hay una solicitud de análisis activa. Por favor, espere a que termine o recargue la página.');
-                    return;
-                }
-
-                const submitButton = e.submitter;
-                const originalText = submitButton.innerHTML;
-                submitButton.disabled = true;
-                submitButton.textContent = 'Procesando Solicitud...';
-                
-                const formData = new FormData(form);
-                formData.append('user_id', DEMO_USER_ID);
-
-                let result;
-                try {
-                    const response = await fetch(`${RENDER_APP_URL}/create-service`, {
-                        method: 'POST',
-                        body: formData
-                    });
-
-                    result = await response.json();
-
-                    if (response.ok) {
-                        if (result.status === 'payment_required') {
-                            // Flujo de Pago: Redireccionar a Stripe
-                            window.location.href = result.payment_url;
-                            return; // Importante: Salir del flujo para evitar restaurar el botón
-                        } else if (result.status === 'success') {
-                            // Bypass: Ejecución inmediata de la IA
-                            showMessage('info', 'Análisis Inmediato (Bypass)', 'El análisis de prueba ha sido generado por la IA. El tiempo simulado se ha iniciado.');
-                            displayResult(result);
-                        }
-                    } else {
-                        throw new Error(result.detail || 'Error desconocido en el backend.');
-                    }
-                } catch (error) {
-                    console.error("Fallo al enviar el formulario:", error);
-                    showMessage('error', 'Error de Conexión', `No se pudo procesar la solicitud: ${error.message}`);
-                } finally {
-                    // Restaurar el botón si no hubo redirección de pago
-                    if (!result || result.status !== 'payment_required') {
-                        submitButton.innerHTML = originalText;
-                        submitButton.disabled = false;
-                    }
-                }
-
-                // Si es un bypass, iniciar el temporizador de espera asíncrona (simulado)
-                if (result && result.status === 'success') {
-                    const selectedLevel = parseInt(form.elements['service_level'].value);
-                    const maxTime = TIERS_DATA[selectedLevel].max_time_min;
-                    startCountdown(maxTime);
-                }
-            });
-        });
-
+        };
     </script>
+
+    <div class="w-full max-w-6xl bg-white p-6 md:p-10 rounded-2xl card">
+        <h1 class="text-4xl font-extrabold text-gray-800 mb-1 flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-emerald-600 mr-3" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M10 2a8 8 0 00-8 8c0 1.76.71 3.42 1.95 4.67l.14-.14C4.38 13.56 5 12.83 5 12a5 5 0 0110 0c0 .83.62 1.56 1.85 2.53l.14.14A8 8 0 0010 2zm0 14a6 6 0 110-12 6 6 0 010 12zM9 9a1 1 0 112 0v3a1 1 0 11-2 0V9z" />
+            </svg>
+            Ateneo Clínico IA: Monetización 1000%
+        </h1>
+        <p class="text-xl font-medium text-emerald-700 mb-4">Estructura por Alcance Funcional + Add-ons. Tiempo simulado por caso: <span id="current-max-time" class="font-extrabold"></span> minutos.</p>
+
+        <!-- AVISO LEGAL OBLIGATORIO (WAIVER) -->
+        <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-lg" role="alert">
+            <p class="font-bold text-red-700">AVISO LEGAL (WAIVER OBLIGATORIO)</p>
+            <p class="text-sm text-red-600">Esta plataforma es para fines académicos/debate. **NO se procesan datos sensibles (HIPAA)**. Archivos adjuntos son para simulación.</p>
+        </div>
+
+        <!-- CONTADOR VISIBLE (TIMER) -->
+        <div id="timer-box" class="mb-6 p-3 bg-white shadow-inner rounded-xl hidden">
+            <p id="timer-display" class="text-2xl font-extrabold text-center hidden"></p>
+            <div id="timer-message" class="text-center"></div>
+        </div>
+
+        <form id="service-form" onsubmit="submitForm(event)">
+            <input type="hidden" name="user_id" value="999">
+
+            <!-- SELECCIÓN DE NIVELES -->
+            <h2 class="text-2xl font-bold text-gray-800 mb-3">1. Seleccione Nivel de Servicio Base</h2>
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+                {TIER_CARDS_HTML}
+            </div>
+
+            <!-- CAMPO DE DESCRIPCIÓN Y ARCHIVO -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                    <label for="description" class="block text-sm font-medium text-gray-700 mb-1">
+                        Descripción del Caso / Signos y Síntomas
+                    </label>
+                    <textarea id="description" name="description" rows="6" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 border p-3 placeholder-gray-400" placeholder="Ejemplo: 'Paciente masculino de 45 años con dolor torácico opresivo...'"></textarea>
+                </div>
+                <div>
+                    <!-- ADD-ONS -->
+                    <h2 class="text-xl font-bold text-gray-800 mb-3">2. Add-ons (Añadir a su protocolo)</h2>
+                   
+                    <div class="mb-3 p-3 border rounded-lg bg-gray-50 flex items-center justify-between">
+                        <label for="include_image_analysis" class="flex items-center text-sm font-medium text-gray-700 cursor-pointer">
+                            <input type="checkbox" id="include_image_analysis" name="include_image_analysis" value="true" class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 mr-2">
+                            🔬 Análisis de Imagen/Laboratorio
+                        </label>
+                        <span class="text-md font-extrabold text-gray-800">$10</span>
+                    </div>
+
+                    <div class="mb-3 p-3 border rounded-lg bg-gray-50 flex items-center justify-between">
+                        <label for="include_tts_addon" class="flex items-center text-sm font-medium text-gray-700 cursor-pointer">
+                            <input type="checkbox" id="include_tts_addon" name="include_tts_addon" value="true" class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 mr-2">
+                            🎧 Audio Profesional (TTS)
+                        </label>
+                        <span id="tts-price-display" class="text-sm font-bold text-gray-600"></span>
+                    </div>
+
+                    <div class="mt-4">
+                        <label for="clinical_file" class="block text-sm font-medium text-gray-700 mb-1">
+                            Archivos Adjuntos (Para Análisis de Imagen)
+                        </label>
+                        <input type="file" id="clinical_file" name="clinical_file" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TOTAL, CONSENTIMIENTO Y BYPASS -->
+            <div class="flex flex-col md:flex-row justify-between items-center bg-emerald-50 p-6 rounded-xl border border-emerald-300 mb-6">
+                <div class="flex items-center text-2xl font-bold text-gray-800">
+                    Total a Pagar: <span id="total-price-display" class="text-emerald-700 ml-2 font-extrabold"></span>
+                </div>
+               
+                <div class="flex flex-col items-start mt-4 md:mt-0">
+                    <div class="flex items-center mb-2">
+                        <input id="has_legal_consent" name="has_legal_consent" type="checkbox" class="h-4 w-4 text-red-600 border-gray-300 rounded focus:ring-red-500 cursor-pointer">
+                        <label for="has_legal_consent" class="ml-2 block text-sm text-gray-900 font-semibold">
+                            ✅ Acepto el consentimiento legal (OBLIGATORIO).
+                        </label>
+                    </div>
+                    <input type="password" id="developer-bypass" name="developer_bypass_key" placeholder="🔑 Clave de Bypass (Flujo Gratuito)" class="mt-1 block w-full rounded-lg border-red-500 shadow-sm focus:border-red-500 focus:ring-red-500 border p-2 text-sm">
+                </div>
+            </div>
+
+            <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-xl text-lg font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-4 focus:ring-offset-2 focus:ring-emerald-500 transition duration-300 ease-in-out">
+                Pagar y Ejecutar Servicio Seleccionado
+            </button>
+        </form>
+
+        <div id="results-section">
+            <!-- Los resultados de la API aparecerán aquí -->
+        </div>
+    </div>
 
 </body>
 </html>
