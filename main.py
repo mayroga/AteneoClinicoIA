@@ -9,7 +9,7 @@ from google import genai
 from google.genai.errors import APIError
 import asyncio
 import time
-import base64 # Necesario para codificar la imagen en el bypass
+import base64 
 
 # =========================================================================
 # 0. CONFIGURACIÓN DE SECRETOS, TIERS Y ADD-ONS
@@ -24,14 +24,13 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 RENDER_APP_URL = os.getenv("RENDER_APP_URL", "https://ateneoclinicoia.onrender.com")
 
 # ESTRUCTURA MEJORADA: VALOR POR ALCANCE FUNCIONAL
-# Incluye base_tasks y max_time_min SIMULADO para el timer
-# MODIFICACIÓN CRÍTICA: Ajuste de instrucciones para Niveles 3, 4, 5.
+# INSTRUCCIONES MODIFICADAS: Tratamiento Hipotético con alternativas (genéricos/baratos) para todos los niveles.
 TIERS = {
-    1: {"name": " Nivel 1 – Diagnóstico Rápido", "price": 10, "value_focus": "Respuesta Directa. (1 Tarea IA)", "max_time_min": 5, "token_instruction": "Proporciona una respuesta extremadamente concisa y directa (Diagnóstico y/o Hipótesis). Máximo 100 palabras. Al final, añade una sección de 'Tratamiento Hipotético' con el aviso en ROJO.", "base_tasks": ["Diagnóstico/Hipótesis", "Tratamiento Hipotético (Sim.)"]},
-    2: {"name": " Nivel 2 – Evaluación Estándar", "price": 50, "value_focus": "Análisis Básico Completo. (2 Tareas IA)", "max_time_min": 10, "token_instruction": "Proporciona un Diagnóstico Definitivo y una Sugerencia Terapéutica General y concisa. Máximo 500 palabras. Al final, añade una sección de 'Tratamiento Hipotético' con el aviso en ROJO.", "base_tasks": ["Diagnóstico Definitivo", "Sugerencia Terapéutica General", "Tratamiento Hipotético (Sim.)"]},
-    3: {"name": " Nivel 3 – Planificación y Protocolo", "price": 100, "value_focus": "Protocolo Clínico Detallado. Genera Escenario Clínico.", "max_time_min": 25, "token_instruction": "Genera un Escenario Clínico completo, exigiendo un razonamiento crítico. Genera un Protocolo Clínico Detallado: Diagnóstico, Terapia Específica y Plan de Pruebas Adicionales (Laboratorio/Imagen). Simula el pensamiento de un examen tipo Board. Análisis PROFUNDO, CRÍTICO y listo para el debate profesional. Máximo 800 palabras. Al final, añade una sección de 'Tratamiento Hipotético' con el aviso en ROJO.", "base_tasks": ["Diagnóstico Definitivo", "Terapia Específica", "Plan de Pruebas Adicionales", "Tratamiento Hipotético (Sim.)"]},
-    4: {"name": " Nivel 4 – Debate y Evidencia", "price": 200, "value_focus": "Análisis Crítico y Controvertido. Genera Escenario Clínico.", "max_time_min": 45, "token_instruction": "Genera un Escenario Clínico completo, exigiendo un razonamiento crítico. Genera un Debate Clínico que incluye Diagnóstico, Terapia, Pruebas y una Sección 'Debate y Alternativas', analizando controversias y evidencia. Simula el pensamiento de un examen tipo Board/Enclex. Análisis PROFUNDO, CRÍTICO y listo para el debate profesional. Máximo 1500 palabras. Al final, añade una sección de 'Tratamiento Hipotético' con el aviso en ROJO.", "base_tasks": ["Diagnóstico", "Terapia", "Pruebas Adicionales", "Debate y Alternativas", "Tratamiento Hipotético (Sim.)"]},
-    5: {"name": " Nivel 5 – Mesa Clínica Premium", "price": 500, "value_focus": "Multi-Caso y Documentación Formal. Genera Escenario Clínico.", "max_time_min": 70, "token_instruction": "Genera un Escenario Clínico completo, exigiendo un razonamiento crítico. Analiza tres casos clínicos proporcionados de forma secuencial. Al final proporciona un Resumen Comparativo, Insights y un borrador de Documentación Formal. Simula el pensamiento de un examen tipo Board/Enclex. Análisis PROFUNDO, CRÍTICO y listo para el debate profesional. Máximo 3000 palabras. Al final, añade una sección de 'Tratamiento Hipotético' con el aviso en ROJO.", "base_tasks": ["Diagnóstico Completo", "Terapia y Protocolo", "Debate Crítico", "Análisis Comparativo (Multi-Caso)", "Borrador de Informe Documental", "Tratamiento Hipotético (Sim.)"]},
+    1: {"name": " Nivel 1 – Diagnóstico Rápido", "price": 10, "value_focus": "Respuesta Directa. (1 Tarea IA)", "max_time_min": 5, "token_instruction": "Proporciona una respuesta extremadamente concisa y directa (Diagnóstico y/o Hipótesis). Máximo 100 palabras. Al final, añade una sección de 'Tratamiento Hipotético (Simulación)', obligatoriamente con opciones de manejo. Incluye al menos 1-2 alternativas de medicamentos genéricos/baratos si aplica. Asegura el aviso en ROJO.", "base_tasks": ["Diagnóstico/Hipótesis", "Tratamiento Hipotético (Sim.)"]},
+    2: {"name": " Nivel 2 – Evaluación Estándar", "price": 50, "value_focus": "Análisis Básico Completo. (2 Tareas IA)", "max_time_min": 10, "token_instruction": "Proporciona un Diagnóstico Definitivo y una Sugerencia Terapéutica General y concisa. Máximo 500 palabras. Al final, añade una sección de 'Tratamiento Hipotético (Simulación)'. Incluye opciones de tratamiento que consideren recursos limitados (genéricos/baratos) y el estándar de oro. Asegura el aviso en ROJO.", "base_tasks": ["Diagnóstico Definitivo", "Sugerencia Terapéutica General", "Tratamiento Hipotético (Sim.)"]},
+    3: {"name": " Nivel 3 – Planificación y Protocolo", "price": 100, "value_focus": "Protocolo Clínico Detallado. Genera Escenario Clínico.", "max_time_min": 25, "token_instruction": "Genera un Escenario Clínico completo, exigiendo un razonamiento crítico. Genera un Protocolo Clínico Detallado: Diagnóstico, Terapia Específica y Plan de Pruebas Adicionales (Laboratorio/Imagen). Simula el pensamiento de un examen tipo Board. Análisis PROFUNDO, CRÍTICO y listo para el debate profesional. El 'Tratamiento Hipotético (Simulación)' debe ser robusto, incluyendo la terapia de primera línea y alternativas económicas o de recursos limitados. Máximo 800 palabras. Asegura el aviso en ROJO.", "base_tasks": ["Diagnóstico Definitivo", "Terapia Específica", "Plan de Pruebas Adicionales", "Tratamiento Hipotético (Sim.)"]},
+    4: {"name": " Nivel 4 – Debate y Evidencia", "price": 200, "value_focus": "Análisis Crítico y Controvertido. Genera Escenario Clínico.", "max_time_min": 45, "token_instruction": "Genera un Escenario Clínico completo, exigiendo un razonamiento crítico. Genera un Debate Clínico que incluye Diagnóstico, Terapia, Pruebas y una Sección 'Debate y Alternativas', analizando controversias y evidencia. El 'Tratamiento Hipotético (Simulación)' debe ser exhaustivo, contrastando el estándar de oro con opciones de bajo coste/genéricos. Simula el pensamiento de un examen tipo Board/Enclex. Análisis PROFUNDO, CRÍTICO y listo para el debate profesional. Máximo 1500 palabras. Asegura el aviso en ROJO.", "base_tasks": ["Diagnóstico", "Terapia", "Pruebas Adicionales", "Debate y Alternativas", "Tratamiento Hipotético (Sim.)"]},
+    5: {"name": " Nivel 5 – Mesa Clínica Premium", "price": 500, "value_focus": "Multi-Caso y Documentación Formal. Genera Escenario Clínico.", "max_time_min": 70, "token_instruction": "Genera un Escenario Clínico completo, exigiendo un razonamiento crítico. Analiza tres casos clínicos proporcionados de forma secuencial. Al final proporciona un Resumen Comparativo, Insights y un borrador de Documentación Formal. El 'Tratamiento Hipotético (Simulación)' debe ser el más completo, comparando el coste-efectividad y la logística de tratamientos múltiples, incluyendo alternativas genéricas. Simula el pensamiento de un examen tipo Board/Enclex. Análisis PROFUNDO, CRÍTICO y listo para el debate profesional. Máximo 3000 palabras. Asegura el aviso en ROJO.", "base_tasks": ["Diagnóstico Completo", "Terapia y Protocolo", "Debate Crítico", "Análisis Comparativo (Multi-Caso)", "Borrador de Informe Documental", "Tratamiento Hipotético (Sim.)"]},
 }
 
 # ADD-ONS DEFINITION (Precios fijos)
@@ -81,15 +80,18 @@ async def call_gemini_api(prompt: str, token_instruction: str, image_data: Optio
             "prompt_used": prompt
         }
     
-    # 1. CONSTRUCCIÓN DE LA INSTRUCCIÓN DEL SISTEMA
+    # 1. CONSTRUCCIÓN DE LA INSTRUCCIÓN DEL SISTEMA (MODIFICADO: Sin mención a Gemini + Preguntas Obligatorias)
     # Se añade la instrucción de tratamiento hipotético directamente al prompt system para controlar el formato
     # y la instrucción de la advertencia.
     
-    # NOTA: Se asume que token_instruction ya incluye la cláusula del Tratamiento Hipotético.
     system_instruction = (
         f"Eres un analista clínico experto que debe actuar como un humano profesional. {token_instruction} "
         "Analiza el caso. Detecta automáticamente el idioma de la consulta y responde íntegramente en ese mismo idioma. "
-        "El Tratamiento Hipotético (Sim.) siempre debe aparecer al final en una sección propia."
+        "El Tratamiento Hipotético (Simulación) o Tratamiento Medicamentoso siempre debe aparecer al final en una sección propia "
+        "que incluya el aviso '⚠️ Solo Simulación, Experimental, para Estudio y Debate. ⚠️' justo antes de la lista de opciones. "
+        "IMPORTANTE: Si la 'Descripción del Caso' es muy corta (menos de 30 palabras) o vaga, DEBES incluir al final de tu respuesta "
+        "una sección obligatoria de 'Preguntas de Seguimiento para el Ateneo Clínico IA' con al menos tres preguntas clave para un mejor diagnóstico. "
+        "El análisis es generado por el ATENEO CLÍNICO IA." # <<-- INSTRUCCIÓN CRÍTICA DE LENGUAJE
     )
 
     # 2. CONSTRUCCIÓN DE LA ENTRADA MULTIMODAL (parts)
@@ -184,6 +186,7 @@ async def fulfill_case(metadata: Dict[str, Any]):
     
     # 1. Recuperar info base
     tier_info = TIERS.get(level, TIERS[1])
+    # Ttoken_instruction tiene las nuevas órdenes de tratamiento diversificado
     token_instruction = tier_info["token_instruction"]
     
     # 2. Checkear Add-ons pagados y ajustar instrucción de tokens
@@ -736,13 +739,25 @@ HTML_TEMPLATE = """
                 const ttsIncluded = response.fulfillment.tts_included;
                 
                 // Dividir el análisis para separar la sección de "Tratamiento Hipotético"
-                const treatmentWaiver = '<div class="bg-red-100 border border-red-400 text-red-700 p-3 rounded-lg mt-3 text-xs font-bold">⚠️ Solo Simulación, Experimental, para Estudio y Debate. ⚠️</div>';
+                // El backend ya asegura que el aviso en ROJO esté antes del tratamiento
+                const treatmentWaiverHTML = '<div class="bg-red-100 border border-red-400 text-red-700 p-3 rounded-lg mt-3 text-xs font-bold">⚠️ Solo Simulación, Experimental, para Estudio y Debate. ⚠️</div>';
                 
-                // Asumiendo que el backend inserta la advertencia ROJA antes del tratamiento,
-                // vamos a buscar la última aparición de la sección de tratamiento para añadir el waiver.
+                // Buscamos la sección de Tratamiento Hipotético/Medicamentoso para estilizarla
                 let analysisDisplay = analysisText.replace(
-                    /(Tratamiento Hipotético|Tratamiento Medicamentoso|Tratamiento Simulación)(\s|:)/gi,
-                    (match) => `</p> ${treatmentWaiver} <p class="whitespace-pre-wrap text-gray-800 text-sm leading-relaxed mt-2"><strong>${match}</strong>`
+                    /(Tratamiento Hipotético|Tratamiento Medicamentoso|Tratamiento Simulación|Preguntas de Seguimiento para el Ateneo Clínico IA)(\s|:)/gi,
+                    (match, p1) => {
+                        let header = `<h3 class="text-lg font-bold text-gray-800 mt-4 border-t pt-4">${p1}</h3>`;
+                        if (p1.includes('Tratamiento')) {
+                            header = `<h3 class="text-lg font-bold text-red-700 mt-4 border-t pt-4">${p1}</h3>`;
+                        }
+                        return header;
+                    }
+                );
+
+                // Asegurar que el waiver esté visible. Lo ponemos justo después del encabezado del tratamiento
+                analysisDisplay = analysisDisplay.replace(
+                    /Tratamiento Hipotético/g,
+                    `Tratamiento Hipotético ${treatmentWaiverHTML}`
                 );
                 
                 startCountdown(maxTime);
@@ -753,7 +768,7 @@ HTML_TEMPLATE = """
                         
                         ${response.fulfillment.analysis_result ? `
                             <p class="text-lg font-semibold text-emerald-700 mt-4 border-b pb-2 border-emerald-200 flex justify-between items-center">
-                                <span> Análisis Clínico de Gemini:</span>
+                                <span> Análisis Clínico del Ateneo Clínico IA:</span>
                                 ${ttsIncluded ? `
                                     <button id="tts-btn" onclick="generateAndPlayAudio('${escapeHtml(analysisText)}', this)"
                                                 class="bg-blue-500 hover:bg-blue-600 text-white text-sm font-bold py-1 px-3 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center">
@@ -810,6 +825,7 @@ HTML_TEMPLATE = """
                         </button>
                     </div>
                 `;
+                console.error("Error en la solicitud:", error);
             }
         }
 
@@ -952,6 +968,9 @@ HTML_TEMPLATE = """
                              Archivos Adjuntos (Para Análisis de Imagen)
                         </label>
                         <input type="file" id="clinical_file" name="clinical_file" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                        <p class="text-xs text-gray-500 mt-1">
+                            Formatos de imagen aceptados: PNG, JPG, JPEG, TIFF. Documentos aceptados: PDF (solo la primera página es analizada si contiene imagen o texto relevante).
+                        </p>
                     </div>
                 </div>
             </div>
