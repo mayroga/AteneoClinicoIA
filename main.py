@@ -10,7 +10,11 @@ from google.genai.errors import APIError
 import asyncio
 import time
 import base64
+from routes import payments
+app = FastAPI()
 
+# Registrar el router de pagos
+app.include_router(payments.router)
 # =========================================================================
 # 0. CONFIGURACIÓN DE SECRETOS, TIERS Y ADD-ONS
 # =========================================================================
